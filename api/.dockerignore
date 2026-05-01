@@ -1,0 +1,2 @@
+# Ignore the node_modules directory to reduce the size of the Docker image
+node_modules
