@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Docker Networking Demo</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0e1a;
+        --surface: #111827;
+        --surface2: #1a2235;
+        --border: #1e2d45;
+        --accent: #00d4ff;
+        --accent2: #7c3aed;
+        --green: #10b981;
+        --red: #ef4444;
+        --yellow: #f59e0b;
+        --text: #e2e8f0;
+        --muted: #64748b;
+        --mono: "JetBrains Mono", monospace;
+        --sans: "Syne", sans-serif;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        min-height: 100vh;
+        padding: 2rem;
+        background-image: radial-gradient(
+            ellipse at 20% 0%,
+            rgba(0, 212, 255, 0.06) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            ellipse at 80% 100%,
+            rgba(124, 58, 237, 0.06) 0%,
+            transparent 50%
+          );
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+
+      header h1 {
+        font-size: 2.8rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      header p {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+      }
+
+      .network-diagram {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .network-diagram::before {
+        content: "NETWORK TOPOLOGY";
+        position: absolute;
+        top: 1rem;
+        right: 1.5rem;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: var(--muted);
+        letter-spacing: 0.15em;
+      }
+
+      .topology {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .topo-node {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .topo-box {
+        background: var(--surface2);
+        border: 2px solid var(--border);
+        border-radius: 10px;
+        padding: 0.8rem 1.2rem;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        text-align: center;
+        min-width: 130px;
+        transition: border-color 0.2s;
+      }
+
+      .topo-box.browser {
+        border-color: var(--yellow);
+      }
+      .topo-box.api {
+        border-color: var(--accent);
+      }
+      .topo-box.ping {
+        border-color: var(--green);
+      }
+      .topo-box.isolated {
+        border-color: var(--accent2);
+      }
+      .topo-box.internet {
+        border-color: var(--muted);
+      }
+
+      .topo-label {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: var(--muted);
+      }
+
+      .topo-arrow {
+        font-size: 1.2rem;
+        color: var(--muted);
+        padding: 0 0.3rem;
+      }
+
+      .topo-arrow.blocked {
+        color: var(--red);
+        font-size: 0.9rem;
+      }
+
+      .network-badge {
+        display: inline-block;
+        background: rgba(0, 212, 255, 0.1);
+        border: 1px solid rgba(0, 212, 255, 0.3);
+        color: var(--accent);
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        margin-top: 0.2rem;
+      }
+
+      .network-badge.isolated {
+        background: rgba(124, 58, 237, 0.1);
+        border-color: rgba(124, 58, 237, 0.3);
+        color: #a78bfa;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.2rem;
+        margin-bottom: 2rem;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        transition: border-color 0.2s, transform 0.2s;
+      }
+
+      .card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+      }
+
+      .card-header {
+        padding: 1rem 1.4rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--surface2);
+      }
+
+      .card-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 6px var(--green);
+        animation: pulse 2s infinite;
+      }
+
+      .dot.yellow {
+        background: var(--yellow);
+        box-shadow: 0 0 6px var(--yellow);
+      }
+      .dot.purple {
+        background: var(--accent2);
+        box-shadow: 0 0 6px var(--accent2);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      .endpoint-tag {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: var(--muted);
+        background: var(--bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+      }
+
+      .card-body {
+        padding: 1.2rem 1.4rem;
+      }
+
+      .desc {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 1rem;
+        line-height: 1.6;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 0.7rem 1rem;
+        border: none;
+        border-radius: 8px;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), #0099cc);
+        color: #000;
+      }
+
+      .btn-primary:hover {
+        opacity: 0.85;
+        transform: scale(0.98);
+      }
+      .btn-primary:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-green {
+        background: linear-gradient(135deg, var(--green), #059669);
+        color: #000;
+      }
+      .btn-green:hover {
+        opacity: 0.85;
+      }
+      .btn-green:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .btn-purple {
+        background: linear-gradient(135deg, var(--accent2), #5b21b6);
+        color: #fff;
+      }
+      .btn-purple:hover {
+        opacity: 0.85;
+      }
+      .btn-purple:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .result-box {
+        margin-top: 1rem;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.9rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        line-height: 1.7;
+        max-height: 240px;
+        overflow-y: auto;
+        display: none;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .result-box.show {
+        display: block;
+      }
+      .result-box.success {
+        border-color: rgba(16, 185, 129, 0.4);
+      }
+      .result-box.error {
+        border-color: rgba(239, 68, 68, 0.4);
+        color: var(--red);
+      }
+
+      .json-key {
+        color: var(--accent);
+      }
+      .json-str {
+        color: var(--green);
+      }
+      .json-num {
+        color: var(--yellow);
+      }
+
+      .insight {
+        margin-top: 0.8rem;
+        padding: 0.7rem 0.9rem;
+        background: rgba(0, 212, 255, 0.05);
+        border-left: 3px solid var(--accent);
+        border-radius: 0 6px 6px 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+        line-height: 1.5;
+        display: none;
+      }
+
+      .insight.show {
+        display: block;
+      }
+
+      .concepts {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1.8rem;
+        margin-bottom: 2rem;
+      }
+
+      .concepts h2 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 1.2rem;
+        color: var(--accent);
+        font-family: var(--mono);
+        letter-spacing: 0.05em;
+      }
+
+      .concept-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+
+      .concept-item {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+      }
+
+      .concept-item h3 {
+        font-size: 0.82rem;
+        font-weight: 700;
+        margin-bottom: 0.4rem;
+        color: var(--text);
+      }
+
+      .concept-item p {
+        font-size: 0.75rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(0, 0, 0, 0.3);
+        border-top-color: #000;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .tag {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+
+      .tag-internal {
+        background: rgba(0, 212, 255, 0.1);
+        color: var(--accent);
+      }
+      .tag-external {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--yellow);
+      }
+      .tag-isolated {
+        background: rgba(124, 58, 237, 0.1);
+        color: #a78bfa;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Docker Networking Demo</h1>
+      <p>
+        // Visualize how containers communicate internally & with the outside
+        world
+      </p>
+    </header>
+
+    <!-- Network Diagram -->
+    <div class="network-diagram">
+      <div class="topology">
+        <div class="topo-node">
+          <div class="topo-box browser">
+            🌐 Your Browser<br /><small style="color: var(--muted)"
+              >localhost</small
+            >
+          </div>
+          <div class="topo-label">Host Machine</div>
+        </div>
+
+        <div class="topo-arrow">→</div>
+
+        <div class="topo-node">
+          <div class="topo-box api">
+            📦 api-service<br /><small style="color: var(--muted)"
+              >port 3000</small
+            >
+          </div>
+          <div class="network-badge">app-network</div>
+        </div>
+
+        <div class="topo-arrow">⟷</div>
+
+        <div class="topo-node">
+          <div class="topo-box ping">
+            📦 ping-service<br /><small style="color: var(--muted)"
+              >port 4000 (internal)</small
+            >
+          </div>
+          <div class="network-badge">app-network</div>
+        </div>
+
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+          "
+        >
+          <div class="topo-arrow blocked">✕</div>
+          <div
+            style="
+              font-family: var(--mono);
+              font-size: 0.6rem;
+              color: var(--red);
+            "
+          >
+            isolated
+          </div>
+        </div>
+
+        <div class="topo-node">
+          <div class="topo-box isolated">
+            📦 isolated-service<br /><small style="color: var(--muted)"
+              >port 5000</small
+            >
+          </div>
+          <div class="network-badge isolated">isolated-network</div>
+        </div>
+
+        <div class="topo-arrow">→</div>
+
+        <div class="topo-node">
+          <div class="topo-box internet">
+            🌍 Internet<br /><small style="color: var(--muted)"
+              >external APIs</small
+            >
+          </div>
+          <div class="topo-label">via host NAT</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Demo Cards -->
+    <div class="grid">
+      <!-- Card 1: Container Info -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="dot"></div>
+            Container Identity
+          </div>
+          <span class="endpoint-tag">GET /info</span>
+        </div>
+        <div class="card-body">
+          <p class="desc">
+            Fetch the container's hostname and internal IP. Inside Docker, the
+            hostname is the short container ID — not your machine's hostname.
+          </p>
+          <button class="btn btn-primary" onclick="callEndpoint('info', this)">
+            <span>Inspect Container</span>
+          </button>
+          <div class="result-box" id="result-info"></div>
+          <div class="insight" id="insight-info">
+            💡 <strong>Notice:</strong> The hostname is a short hash — that's
+            the container ID. The IP (e.g. 172.18.x.x) is the container's
+            address inside the Docker bridge network, not your machine's IP.
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Container-to-Container -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="dot"></div>
+            Internal DNS Communication
+            <span class="tag tag-internal">INTERNAL</span>
+          </div>
+          <span class="endpoint-tag">GET /talk-to-ping</span>
+        </div>
+        <div class="card-body">
+          <p class="desc">
+            api-service calls ping-service using just its container name as
+            hostname. Docker's built-in DNS resolves "ping-service" → container
+            IP automatically.
+          </p>
+          <button
+            class="btn btn-green"
+            onclick="callEndpoint('talk-to-ping', this)"
+          >
+            <span>Trigger Inter-Container Call</span>
+          </button>
+          <div class="result-box" id="result-talk-to-ping"></div>
+          <div class="insight" id="insight-talk-to-ping">
+            💡 <strong>How it works:</strong> api-service called
+            <code>http://ping-service:4000/pong</code> — no IP address needed.
+            Docker's embedded DNS server resolved "ping-service" to its
+            container IP. This only works because both containers are on the
+            same network (app-network).
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: External World -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="dot yellow"></div>
+            External Internet Access
+            <span class="tag tag-external">EXTERNAL</span>
+          </div>
+          <span class="endpoint-tag">GET /external</span>
+        </div>
+        <div class="card-body">
+          <p class="desc">
+            api-service calls a real public API (jsonplaceholder.typicode.com)
+            from inside the container. Docker routes outbound traffic through
+            the host's NAT.
+          </p>
+          <button
+            class="btn btn-primary"
+            onclick="callEndpoint('external', this)"
+          >
+            <span>Call External API</span>
+          </button>
+          <div class="result-box" id="result-external"></div>
+          <div class="insight" id="insight-external">
+            💡 <strong>How it works:</strong> Docker uses NAT (Network Address
+            Translation) — outbound traffic exits through the host machine's
+            real IP. The external server sees your host's IP, not the
+            container's internal IP (172.18.x.x).
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4: Network Interfaces -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="dot"></div>
+            Network Interfaces
+          </div>
+          <span class="endpoint-tag">GET /network</span>
+        </div>
+        <div class="card-body">
+          <p class="desc">
+            See all network interfaces inside the container. eth0 is the virtual
+            NIC Docker creates — lo is the loopback interface (localhost inside
+            the container).
+          </p>
+          <button class="btn btn-green" onclick="callEndpoint('network', this)">
+            <span>Inspect Network Interfaces</span>
+          </button>
+          <div class="result-box" id="result-network"></div>
+          <div class="insight" id="insight-network">
+            💡 <strong>Notice:</strong> eth0 has a 172.x.x.x IP — that's the
+            Docker virtual network. lo is 127.0.0.1 — localhost inside the
+            container. Your host machine's IP (192.168.x.x) is NOT visible here.
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 5: Isolated Service -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="dot purple"></div>
+            Isolated Service <span class="tag tag-isolated">ISOLATED</span>
+          </div>
+          <span class="endpoint-tag">port 5000</span>
+        </div>
+        <div class="card-body">
+          <p class="desc">
+            isolated-service is on a separate Docker network. api-service CANNOT
+            reach it internally — even though they're on the same host. This
+            demonstrates network isolation.
+          </p>
+          <button class="btn btn-purple" onclick="callIsolated(this)">
+            <span>Check Isolated Service</span>
+          </button>
+          <div class="result-box" id="result-isolated"></div>
+          <div class="insight" id="insight-isolated">
+            💡 <strong>Network Isolation:</strong> isolated-service is on
+            "isolated-network" while api-service is on "app-network". Docker
+            treats them as separate virtual switches — no traffic can flow
+            between them. This is how microservices enforce security boundaries.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Concepts -->
+    <div class="concepts">
+      <h2>// KEY CONCEPTS DEMONSTRATED</h2>
+      <div class="concept-grid">
+        <div class="concept-item">
+          <h3>🔀 Bridge Network</h3>
+          <p>
+            The default Docker network type. Acts like a virtual switch. All
+            containers on the same bridge can communicate using container names
+            as hostnames.
+          </p>
+        </div>
+        <div class="concept-item">
+          <h3>🧭 Internal DNS</h3>
+          <p>
+            Docker runs a built-in DNS server. When a container calls
+            "ping-service", Docker resolves it to the container's IP — no manual
+            IP management needed.
+          </p>
+        </div>
+        <div class="concept-item">
+          <h3>🌍 NAT for Outbound</h3>
+          <p>
+            Containers reach the internet via the host's NAT. Outbound traffic
+            exits through the host's IP. The external server never sees the
+            container's 172.x.x.x address.
+          </p>
+        </div>
+        <div class="concept-item">
+          <h3>🚪 Port Mapping</h3>
+          <p>
+            host:container port mapping (e.g. 3000:3000) punches a hole in the
+            firewall. Without it, the container is unreachable from your
+            browser.
+          </p>
+        </div>
+        <div class="concept-item">
+          <h3>🔒 Network Isolation</h3>
+          <p>
+            Containers on different networks cannot communicate even on the same
+            host. This is how Docker enforces security boundaries between
+            services.
+          </p>
+        </div>
+        <div class="concept-item">
+          <h3>📦 Container Hostname</h3>
+          <p>
+            Each container gets a hostname equal to its short container ID.
+            Other containers reference it by its service name, not the ID.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const BASE = "http://localhost:3000";
+
+      async function callEndpoint(endpoint, btn) {
+        const resultEl = document.getElementById(`result-${endpoint}`);
+        const insightEl = document.getElementById(`insight-${endpoint}`);
+        const label = btn.querySelector("span");
+        const originalText = label.textContent;
+
+        btn.disabled = true;
+        label.innerHTML = '<div class="spinner"></div> Calling...';
+        resultEl.className = "result-box";
+        resultEl.style.display = "block";
+        resultEl.textContent = "// fetching...";
+
+        try {
+          const res = await fetch(`${BASE}/${endpoint}`);
+          const data = await res.json();
+          resultEl.innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+          resultEl.className = "result-box show success";
+          if (insightEl) insightEl.className = "insight show";
+        } catch (err) {
+          resultEl.textContent = `// Error: ${err.message}\n// Make sure docker-compose is running:\n// docker-compose up --build`;
+          resultEl.className = "result-box show error";
+        } finally {
+          btn.disabled = false;
+          label.textContent = originalText;
+        }
+      }
+
+      async function callIsolated(btn) {
+        const resultEl = document.getElementById("result-isolated");
+        const insightEl = document.getElementById("insight-isolated");
+        const label = btn.querySelector("span");
+        btn.disabled = true;
+        label.innerHTML = '<div class="spinner"></div> Checking...';
+        resultEl.style.display = "block";
+
+        try {
+          const res = await fetch("http://localhost:5000/info");
+          const data = await res.json();
+          resultEl.innerHTML =
+            `// isolated-service IS reachable from your browser (port 5000 is mapped)\n// But api-service CANNOT reach it internally — different Docker network!\n\n` +
+            syntaxHighlight(JSON.stringify(data, null, 2));
+          resultEl.className = "result-box show success";
+        } catch (err) {
+          resultEl.textContent = `// Could not reach isolated-service on port 5000\n// ${err.message}`;
+          resultEl.className = "result-box show error";
+        } finally {
+          btn.disabled = false;
+          label.textContent = "Check Isolated Service";
+          insightEl.className = "insight show";
+        }
+      }
+
+      function syntaxHighlight(json) {
+        return json.replace(
+          /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+          (match) => {
+            let cls = "json-num";
+            if (/^"/.test(match)) {
+              cls = /:$/.test(match) ? "json-key" : "json-str";
+            }
+            return `<span class="${cls}">${match}</span>`;
+          }
+        );
+      }
+    </script>
+  </body>
+</html>

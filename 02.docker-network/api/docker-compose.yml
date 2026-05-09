@@ -1,0 +1,56 @@
+services:
+  # ─────────────────────────────────────────────
+  # Service 1: api-service
+  # Exposed to host on port 3000
+  # Can talk to ping-service via internal DNS
+  # Can also reach the external internet
+  # ─────────────────────────────────────────────
+  api-service:
+    build: ./api-service
+    container_name: api-service
+    ports:
+      - "3000:3000" # host:container — exposes to your browser
+    networks:
+      - app-network # joins the shared internal network
+
+  # ─────────────────────────────────────────────
+  # Service 2: ping-service
+  # NOT exposed to host (no ports mapping)
+  # Only reachable from inside Docker network
+  # Demonstrates internal-only communication
+  # ─────────────────────────────────────────────
+  ping-service:
+    build: ./ping-service
+    container_name: ping-service
+    # No 'ports' here — not reachable from your browser directly!
+    # Only api-service can talk to it via Docker internal DNS
+    networks:
+      - app-network # same network → can communicate
+
+  # ─────────────────────────────────────────────
+  # Service 3: isolated-service
+  # On a DIFFERENT network — cannot talk to others
+  # Demonstrates network isolation
+  # ─────────────────────────────────────────────
+  isolated-service:
+    build: ./ping-service # reuse same image for demo
+    container_name: isolated-service
+    ports:
+      - "5000:4000"
+    networks:
+      - isolated-network # different network → isolated!
+
+# ─────────────────────────────────────────────
+# Networks
+# Docker creates these as virtual switches
+# Containers on the same network can talk freely
+# Containers on different networks are isolated
+# ─────────────────────────────────────────────
+networks:
+  app-network:
+    driver: bridge # default — virtual switch on host
+    name: app-network
+
+  isolated-network:
+    driver: bridge
+    name: isolated-network
