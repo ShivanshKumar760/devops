@@ -9,7 +9,7 @@ FROM node:18-alpine
 WORKDIR /app
 
 #Copy the package.json and package-lock.json files to the working directory - layer 3
-COPY package*.json ./ 
+COPY /package*.json ./ 
 #We dont have to cd into the folder because we have already set the working directory to /app
 
 #Install the dependencies specified in the package.json file - layer 4
