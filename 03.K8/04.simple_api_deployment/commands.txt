@@ -1,0 +1,23 @@
+1.docker build -t api:local  -f docker\dockerfile .
+2.testing:docker run -d --name api-local-test -p 3000:3000 api:local
+➜  03.K8 git:(master) ✗ docker start 0253a980c230
+0253a980c230
+➜  03.K8 git:(master) ✗ docker start c1783a38138f
+c1783a38138f
+➜  03.K8 git:(master) ✗ docker start 512753b6ade5
+512753b6ade5
+
+3.for local image load the image into cluster so that it does not have to pull:
+ kind load docker-image api:local --name test-cluster
+
+4.check the image: docker exec -it test-cluster-control-plane crictl images
+5.create a sample file for deployment.yml: kubectl create deployment api-deploy --image-name=api:local --dry-run=client -o yaml > sample.yml
+6.kubectl get deploy
+7.kubectl get pods
+8.kubectl get svc
+9.kubectl expose deployment api-deploy --name=api-deploy-service --type=NodePort --port=3000 --target-port=3000 --dry-run=client -o yaml > service.yml
+10.if we want to create service from scratch :
+kubectl create service nodeport api-deploy-service --tcp=3000:3000 --dry-run=client -o yaml > service.yml
+
+11.port forwarding:
+kubectl port-forward svc/api-deploy-service 8080:3000
