@@ -1,0 +1,12 @@
+FROM node:18-alpine
+WORKDIR /app
+
+# Path is relative to the build context (project root)
+COPY api/package*.json ./
+RUN npm install --omit=dev
+
+# Path is relative to the build context (project root)
+COPY api/ ./
+
+EXPOSE 3000
+CMD ["node", "index.js"]

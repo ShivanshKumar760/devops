@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: api-deploy
+  name: api-deploy-service
+spec:
+  ports:
+    - port: 3000 # The port inside the cluster
+      protocol: TCP
+      targetPort: 3000 # The containerPort inside your pod
+      nodePort: 32000 # Optional: Fixed external port for Kind access
+  selector:
+    app: api-deploy # Crucial: Must match your deployment's matchLabels
+  type: NodePort

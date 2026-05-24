@@ -1,0 +1,14 @@
+1.kubectl get pods 
+2.kubectl run pod-name --image=image_name
+3.kubectl run pod-name --image=image_name --dry-run=client -o yaml > filename.yml 
+dry run basically will spin pod and delete cause its a dry run but we can extract a yaml file out of it and 
+edit it 
+
+3.kubectl edit pod pod_name->to edit pod
+4.kubectl get pods --show-label
+5.kubectl create -f filename.yml
+6.kubectl apply filename.yml -> use if we changed anything in our yaml and have to reply (we can directly use the apply command
+without create)
+
+7.kubectl get pods -o wide
+8.kubectl delete pod pod_name

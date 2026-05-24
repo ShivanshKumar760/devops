@@ -1,0 +1,5 @@
+kubectl create deployment nginxdeploy --image=nginx --replicas=3
+➜  01.pod git:(master) ✗ kubectl get deployment
+➜  01.pod git:(master) ✗ kubectl describe deployment
+kubectl create deployment sample --image=nginx --dry-run=client -o yaml > sample.yml
+kubectl scale deployment nginxdeploy --replicas=1 # helps u scale down or up ur replicas set

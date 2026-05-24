@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: api-deploy
+  name: api-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-deploy
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: api-deploy
+    spec:
+      containers:
+        - image: api:local
+          name: api
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+status: {}

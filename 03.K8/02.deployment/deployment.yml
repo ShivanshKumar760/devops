@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-deployment
+  labels:
+    app: sample-deployment
+spec:
+  replicas: 1
+  selector: #this selector tell that the deployment will manage the pods which have the label app: sample
+    matchLabels:
+      app: sample-deployment #this label is used to identify the pods that belong to this deployment. The deployment will create and manage pods with this label.
+  strategy: {}
+  template: #this template is used to define the pod that will be created by the deployment. The deployment will create pods based on this template.
+    #so that if a pod is deleted, the deployment will create a new pod based on this template to replace it.
+    #this spining up of new pod is done by the deployment controller, which is a part of the Kubernetes control plane. The deployment controller continuously monitors the state of the cluster and ensures that the desired number of replicas are running at all times. If a pod is deleted or fails, the deployment controller will automatically create a new pod based on the template to maintain the desired state of the application.
+    metadata:
+      labels:
+        app: sample-deployment
+    spec:
+      containers:
+        - image: nginx
+          name: nginx
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
