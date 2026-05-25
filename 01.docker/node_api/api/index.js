@@ -134,7 +134,11 @@ const getAllTodos = async (req, res) => {
 app.post("/todos", authMiddleware, createTodo);
 app.get("/todos", authMiddleware, getAllTodos);
 
-mongoose.connect("mongodb://localhost:27017/docker-todo-app").then(() => {
+app.get("/", (req, res) => {
+  res.send("Welcome to the Docker Todo API.Let's get started!");
+});
+
+mongoose.connect("mongodb://db:27017/mydatabase").then(() => {
   console.log("Connected to MongoDB");
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
