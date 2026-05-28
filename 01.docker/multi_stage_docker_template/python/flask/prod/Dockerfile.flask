@@ -1,0 +1,120 @@
+# ═══════════════════════════════════════════════════════════════
+# STAGE 1 — python-base
+# python:3.12-slim is Debian-based but strips most packages,
+# giving a ~130 MB base vs ~900 MB for the full image.
+# Prefer slim over alpine for Python: many packages need glibc
+# (not musl) and compiling from source in alpine is fragile.
+# ═══════════════════════════════════════════════════════════════
+FROM python:3.12.3-slim-bookworm AS python-base
+
+# Prevent Python from writing .pyc bytecode files to disk.
+# In containers, .pyc files are rarely useful and waste layer space.
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Force Python's stdout/stderr to be unbuffered.
+# Without this, print() and logging output may be delayed or lost
+# when the container crashes — critical for log aggregation.
+ENV PYTHONUNBUFFERED=1
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 2 — builder
+# Purpose: compile Python packages that require C extensions
+# (e.g., psycopg2, Pillow, cryptography).
+# Build tools (gcc, build-essential) are installed here and
+# discarded in the final stage, keeping production image minimal.
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS builder
+
+# Install OS-level build dependencies needed to compile Python
+# packages with C extensions. These never reach the final image.
+# --no-install-recommends prevents apt from pulling in optional packages.
+# && rm -rf /var/lib/apt/lists/* clears the apt cache from this layer.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Create a virtual environment inside /app/venv.
+# Using a venv inside the container provides an isolated, portable
+# Python environment. We can then COPY /app/venv into the final
+# stage cleanly, without installing pip/setuptools globally there.
+RUN python -m venv /app/venv
+
+# Activate the venv for all subsequent RUN commands by prepending
+# its bin directory to PATH.
+ENV PATH="/app/venv/bin:$PATH"
+
+# Upgrade pip inside the venv to the latest version.
+RUN pip install --upgrade pip
+
+# Copy requirements before source code (cache optimization).
+COPY requirements.txt .
+
+# Install Python dependencies into the venv.
+# --no-cache-dir: don't cache downloaded wheels (saves image space).
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 3 — production image
+# Contains: Python runtime, virtual environment, application code
+# Does NOT contain: gcc, build-essential, header files, apt cache
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS production
+
+LABEL org.opencontainers.image.title="Flask REST API" \
+      org.opencontainers.image.version="1.0.0"
+
+# Install only the runtime OS libraries required (not build tools).
+# libpq5 is the PostgreSQL client runtime library (no dev headers).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the entire virtual environment from the builder stage.
+# This includes all compiled extensions and installed packages.
+COPY --from=builder /app/venv /app/venv
+
+# Make the venv the active Python environment.
+ENV PATH="/app/venv/bin:$PATH"
+
+# Copy application source code.
+COPY app ./app
+COPY wsgi.py .
+
+# Create a non-root user for security.
+# useradd -r = system account, -s /sbin/nologin = no login shell
+# chown ensures the app directory is owned by this user.
+RUN useradd -r -s /sbin/nologin appuser \
+  && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')" || exit 1
+
+# Gunicorn is a production-grade WSGI server.
+# DO NOT use Flask's built-in development server (flask run) in production:
+# it is single-threaded, has no graceful shutdown, and is not designed
+# for concurrent requests.
+#
+# Flags explained:
+#   --workers: number of worker processes. Rule of thumb: 2*CPU + 1
+#   --worker-class: sync (default) is fine for I/O-light APIs
+#   --bind:    listen on all interfaces on port 5000
+#   --timeout: kill a worker if it doesn't respond in 120s (prevent hangs)
+#   --access-logfile -: send access logs to stdout for log aggregators
+#   wsgi:app   → wsgi.py file, `app` Flask application object
+CMD ["gunicorn", \
+     "--workers", "4", \
+     "--worker-class", "sync", \
+     "--bind", "0.0.0.0:5000", \
+     "--timeout", "120", \
+     "--access-logfile", "-", \
+     "wsgi:app"]

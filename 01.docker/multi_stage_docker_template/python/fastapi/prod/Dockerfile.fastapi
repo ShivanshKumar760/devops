@@ -1,0 +1,94 @@
+# ═══════════════════════════════════════════════════════════════
+# STAGE 1 — python-base
+# FastAPI benefits from Python 3.12's async performance improvements.
+# bookworm = Debian 12 (stable, LTS).
+# ═══════════════════════════════════════════════════════════════
+FROM python:3.12.3-slim-bookworm AS python-base
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# pip configuration: disable version check warnings in logs
+# and disable the cache (we manage caching at Docker layer level).
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_NO_CACHE_DIR=1
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 2 — builder
+# Compiles packages with C extensions (e.g., pydantic-core,
+# python-multipart, cryptography, uvloop).
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+RUN pip install --upgrade pip
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 3 — production
+# FastAPI uses Uvicorn (ASGI server) + Gunicorn (process manager).
+# Uvicorn handles async event loop; Gunicorn manages worker processes.
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS production
+
+LABEL org.opencontainers.image.title="FastAPI" \
+      org.opencontainers.image.version="1.0.0"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Set the Python path so that `app` package is importable.
+ENV PYTHONPATH="/app"
+
+COPY app ./app
+
+RUN useradd -r -s /sbin/nologin appuser \
+  && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+# FastAPI's /health is a common convention; adjust to your actual
+# health endpoint path.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Gunicorn with UvicornWorker:
+#   - Gunicorn manages multiple worker processes (restart on crash, etc.)
+#   - Each worker runs a Uvicorn ASGI event loop
+#   - This is the recommended production pattern for FastAPI
+#
+# --workers 4:            4 worker processes (adjust per CPU count)
+# -k uvicorn.workers.UvicornWorker: use Uvicorn's ASGI-compatible worker
+# --bind 0.0.0.0:8000:   listen on all interfaces
+# --graceful-timeout 30:  give workers 30s to finish requests on shutdown
+# --keep-alive 5:         keepalive timeout in seconds
+# app.main:app:           import path → app/main.py → `app` FastAPI instance
+CMD ["gunicorn", \
+     "--workers", "4", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "--bind", "0.0.0.0:8000", \
+     "--graceful-timeout", "30", \
+     "--keep-alive", "5", \
+     "--access-logfile", "-", \
+     "app.main:app"]

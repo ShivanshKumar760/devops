@@ -1,0 +1,73 @@
+#multi stage build for node express api application
+FROM node:20-alpine as base
+WORKDIR /app
+COPY package.json package-lock.json ./
+
+FROM base as deps
+RUN npm ci
+
+FROM base as prod-deps
+RUN npm ci --omit=dev
+
+
+FROM deps as test 
+COPY . .
+RUN npm lint && npm test
+
+
+FROM node:20-alpine as prod
+# Add metadata labels following OCI image spec.
+# Useful for vulnerability scanners, registries, and auditing.
+LABEL org.opencontainers.image.title="Express JS API" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.description="Production Express.js REST API"
+
+# Install dumb-init: a tiny init process for containers.
+# Solves two problems:
+#   1. PID 1 problem — Node.js is not designed to be PID 1; it doesn't
+#      handle SIGTERM correctly, leading to zombie processes.
+#   2. Signal forwarding — dumb-init forwards signals to child processes,
+#      enabling graceful shutdown in Kubernetes / ECS.
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+COPY src ./src
+
+COPY package.json ./
+
+# Create a non-root user and group.
+# Running as root inside a container is a security risk:
+# a container escape bug would give the attacker root on the host.
+# addgroup -S = system group, adduser -S = system user (no shell, no password)
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Switch to the non-root user for all subsequent commands and at runtime.
+USER appuser
+
+# Document that the app listens on port 3000.
+# EXPOSE is informational — it does not publish the port.
+# Use -p 3000:3000 at docker run time.
+EXPOSE 3000
+
+
+# Configure Docker's built-in health check.
+# --interval: how often to run the check
+# --timeout:  how long to wait for a response before marking unhealthy
+# --start-period: grace period after container starts (app is booting)
+# --retries: how many consecutive failures before marking unhealthy
+# wget is lighter than curl in Alpine images.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+# Use dumb-init as PID 1 to wrap the Node.js process.
+# This ensures SIGTERM is forwarded correctly for graceful shutdown.
+ENTRYPOINT ["dumb-init", "--"]
+
+# The default command to run when the container starts.
+# Using exec form (JSON array) — never use shell form in production
+# because shell form spawns a shell process (sh -c "...") as PID 1
+# instead of your application, breaking signal handling.
+CMD ["node", "src/index.js"]

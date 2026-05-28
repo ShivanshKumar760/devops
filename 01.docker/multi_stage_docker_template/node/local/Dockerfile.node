@@ -1,0 +1,46 @@
+# =========================
+# Stage 1 — deps
+# Purpose: install ALL dependencies (including devDeps for linting/testing)
+# =========================
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+# =========================
+# Stage 2 — prod-deps
+# Purpose: install ONLY production dependencies
+# No devDependencies (jest, eslint, nodemon) in the final image
+# =========================
+FROM node:20-alpine AS prod-deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# =========================
+# Stage 3 — production
+# =========================
+FROM node:20-alpine AS production
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Install dumb-init for proper PID 1 signal handling
+RUN apk add --no-cache dumb-init
+
+# Copy production node_modules from prod-deps stage
+# devDependencies never touch this image
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# Copy source code directly — no dist/ folder, no compiler needed
+# This is the key difference from TypeScript
+COPY src ./src
+COPY package.json ./
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+EXPOSE 3000
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "src/index.js"]

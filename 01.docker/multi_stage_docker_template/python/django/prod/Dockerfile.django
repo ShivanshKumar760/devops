@@ -1,0 +1,117 @@
+# ═══════════════════════════════════════════════════════════════
+# STAGE 1 — python-base
+# Django + DRF is typically synchronous (WSGI); Python 3.12 is fine.
+# For async Django (ASGI with channels), use the same base.
+# ═══════════════════════════════════════════════════════════════
+FROM python:3.12.3-slim-bookworm AS python-base
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_NO_CACHE_DIR=1
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 2 — builder
+# Compiles psycopg2, Pillow, lxml, cryptography, etc.
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libwebp-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+RUN pip install --upgrade pip
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 3 — static files collector
+# Django's collectstatic command gathers all static files into
+# STATIC_ROOT. We run this in a dedicated stage so the result
+# can be copied into both the app container and (optionally)
+# a separate nginx container serving static files.
+# ═══════════════════════════════════════════════════════════════
+FROM builder AS static-collector
+
+COPY . .
+
+# DJANGO_SETTINGS_MODULE must point to production settings.
+# SECRET_KEY is required by Django even for collectstatic.
+# Using a dummy value here is safe since no requests are handled.
+ENV DJANGO_SETTINGS_MODULE=config.settings.production
+ENV SECRET_KEY=dummy-secret-key-for-collectstatic-only
+
+RUN python manage.py collectstatic --noinput
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 4 — production image
+# ═══════════════════════════════════════════════════════════════
+FROM python-base AS production
+
+LABEL org.opencontainers.image.title="Django DRF API" \
+      org.opencontainers.image.version="1.0.0"
+
+# Runtime libraries only (no dev headers).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libjpeg62-turbo \
+    zlib1g \
+    libwebp7 \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+ENV PYTHONPATH="/app"
+
+# Copy application source code.
+COPY manage.py .
+COPY config ./config
+COPY apps ./apps
+
+# Copy collected static files from the static-collector stage.
+# In production, these are usually served by nginx or a CDN,
+# but we include them here so the single image is self-contained.
+COPY --from=static-collector /app/staticfiles ./staticfiles
+
+ENV DJANGO_SETTINGS_MODULE=config.settings.production
+
+RUN useradd -r -s /sbin/nologin appuser \
+  && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8000/health/ || exit 1
+
+# Gunicorn for Django WSGI.
+# For Django Channels (ASGI), replace with:
+#   daphne -b 0.0.0.0 -p 8000 config.asgi:application
+#
+# config.wsgi:application → config/wsgi.py → `application` WSGI callable
+CMD ["gunicorn", \
+     "--workers", "4", \
+     "--worker-class", "sync", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "120", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "50", \
+     "--access-logfile", "-", \
+     "config.wsgi:application"]
