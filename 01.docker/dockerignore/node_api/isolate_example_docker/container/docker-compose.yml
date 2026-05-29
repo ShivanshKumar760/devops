@@ -1,0 +1,69 @@
+#if your dockerfile and docker-compose.yml plus the project is in the same folder, you can use the below docker-compose.yml file. If not, you need to specify the build context and dockerfile path in the docker-compose.yml file as shown in the second example below.
+# services:
+#   api:
+#     build: .
+#     ports:
+#       - "8000:8000"
+#     environment:
+#       - RUNTIME_ENV=DOCKER
+#     depends_on:
+#       - db
+#   db:
+#     image: postgres:13
+#     environment:
+#       - POSTGRES_USER=postgres
+#       - POSTGRES_PASSWORD=postgres
+#       - POSTGRES_DB=postgres
+#     ports:
+#       - "5432:5432"
+
+#if your dockerfile and docker-compose.yml are in a separate folder from the main project, you can use the below docker-compose.yml file. Make sure to adjust the build context and dockerfile path according to your project structure.
+# version: "3.8"
+
+# services:
+#   api:
+#     build:
+#       context: .. # Tells Docker the main root folder is the build context
+#       dockerfile: docker/Dockerfile # Locates the Dockerfile starting from the context root
+#     ports:
+#       - "8000:3000" # Maps host port 8000 to internal Express port 3000
+#     environment:
+#       - RUNTIME_ENV=DOCKER
+#     depends_on:
+#       - db
+
+#   db:
+#     image: postgres:13
+#     environment:
+#       - POSTGRES_USER=postgres
+#       - POSTGRES_PASSWORD=postgres
+#       - POSTGRES_DB=postgres
+#     ports:
+#       - "5432:5432"
+
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ../../ # Tells Docker the main root folder is the build context
+      dockerfile: isolate_example_docker/container/dockerfile.example # Locates the Dockerfile starting from the context root
+    ports:
+      - "8000:3000" # Maps host port 8000 to internal Express port 3000
+    environment:
+      - RUNTIME_ENV=DOCKER
+      # Passes the MongoDB connection string to your Express app
+      - MONGO_URI=mongodb://db:27017/mydatabase
+    depends_on:
+      - db
+
+  db:
+    image: mongo:7.0 # Replaced postgres with official MongoDB 7.0 image
+    ports:
+      - "27017:27017" # Maps host port 27017 to internal MongoDB port 27017
+    volumes:
+      - mongo_data:/data/db # Keeps your database data safe when container restarts
+
+# Defines the persistent volume for MongoDB storage
+volumes:
+  mongo_data:

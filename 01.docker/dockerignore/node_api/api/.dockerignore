@@ -1,0 +1,15 @@
+# Ignore the node_modules directory to reduce the size of the Docker image
+node_modules
+.dockerignore
+Dockerfile
+Dockerfile.clean
+# Ignore any log files
+*.log
+# Ignore any environment variable files
+.env
+# Ignore any build artifacts
+dist
+build
+#ignore any version control directories
+.git
+.gitignore
