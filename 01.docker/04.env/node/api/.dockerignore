@@ -4,7 +4,12 @@ node_modules
 Dockerfile
 Dockerfile.clean
 # Ignore any log files
+logs
+logs/*
+log
 *.log
+*.log.*
+*.txt
 # Ignore any environment variable files
 .env
 # Ignore any build artifacts
@@ -13,3 +18,4 @@ build
 #ignore any version control directories
 .git
 .gitignore
+

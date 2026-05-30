@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=urlshortener
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ─── Application Services ────────────────────────────────────────────────────
+  gateway:
+    build: ./gateway
+    ports:
+      - "3002:3000"
+    environment:
+      PG_HOST: postgres # this is the postgres service define above
+      PG_DB: urlshortener
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+      BASE_URL: http://localhost:3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  cache-worker:
+    build: ./cache-worker
+    environment:
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672 # here rabbitmq is the service define above using docker internal dns
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  analytics-worker:
+    build: ./analytics-worker
+    environment:
+      PG_HOST: postgres
+      PG_DB: urlshortener
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pg_data:
