@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  service-java-a:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - TAX_SERVICE_URL=http://service-java-b:8080
+    depends_on:
+      - service-java-b
+    networks:
+      - tax-calculator-networkjava
+
+  service-java-b:
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    networks:
+      - tax-calculator-networkjava
+
+networks:
+  tax-calculator-networkjava:
+    driver: bridge

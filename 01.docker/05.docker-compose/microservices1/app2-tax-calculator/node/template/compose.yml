@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  service-1:
+    image: "image path of service-1/from docker hub"
+    environment:
+      env_var1: value1
+      env_var2: value2
+      env_var3: value3
+    ports:
+      - "localhost_port:container_port"
+    volumes:
+      - docker_vol:container_pth
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  service-2:
+    image: "image path of service 2"
+    ports:
+      - "localhost_port:container_port"
+      - "localhost_port2:container_port2"
+    environment:
+      env_var1: guest
+      env_var2: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+  service-3:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - service-4
+
+  service-4:
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile
+    ports:
+      - "4001:4000"
+
+  service-5:
+    build: ./service-5
+    ports:
+      - "localhost_port:container_port"
+    environment:
+      env_var1: value1
+      env_var2: value2
+      env_var3: value3
+      env_var4: value4
+      env_var5: value5
+      env_var6: http://localhost:5000
+    depends_on:
+      service-1:
+        condition: service_healthy
+      service-2:
+        condition: service_healthy
+volumes:
+  pg_data:
+
+networks:
+  custom-network:
+    driver: bridge
