@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: urlshortener
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "5001:5000"
+    environment:
+      PG_HOST: postgres
+      PG_DB: urlshortener
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+      BASE_URL: http://localhost:5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  cache-worker:
+    build: ./cache-worker
+    environment:
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  analytics-worker:
+    build: ./analytics-worker
+    environment:
+      PG_HOST: postgres
+      PG_DB: urlshortener
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pg_data:
