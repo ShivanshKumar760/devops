@@ -1,0 +1,41 @@
+# ==========================================
+# STAGE 1: The Builder Process
+# ==========================================
+FROM node:18-alpine AS builder
+WORKDIR /app
+
+# Copy dependency manifests
+COPY api/package*.json ./
+
+# Install ALL dependencies (including devDependencies if needed for build/TS compilation)
+RUN npm install
+
+# Copy all source files
+COPY api/ ./
+
+# Optional: Run compilation if using TypeScript or bundlers (e.g., Vite/Webpack)
+# RUN npm run build
+
+
+# ==========================================
+# STAGE 2: The Production Runtime
+# ==========================================
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Ensure clean production mode
+ENV NODE_ENV=production
+
+# Copy only production dependencies from the builder stage
+COPY --from=builder /app/package*.json ./
+RUN npm install --omit=dev
+
+# Copy only the application runtime files from the builder stage
+COPY --from=builder /app/index.js ./index.js
+# Note: If your app has other files or a build/ folder, copy them instead:
+# COPY --from=builder /app/dist ./dist
+
+EXPOSE 3000
+
+# Run using the lean runner image
+CMD ["node", "index.js"]

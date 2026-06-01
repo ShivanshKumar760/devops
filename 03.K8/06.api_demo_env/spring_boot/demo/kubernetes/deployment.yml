@@ -32,3 +32,44 @@ spec:
             requests:
               memory: "512Mi"
               cpu: "250m"
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: my-api
+#   namespace: my-api
+#   labels:
+#     app: my-api
+# spec:
+#   replicas: 3
+#   selector:
+#     matchLabels:
+#       app: my-api
+#   strategy:
+#     type: RollingUpdate
+#     rollingUpdate:
+#       maxSurge: 1
+#       maxUnavailable: 1
+#   template:
+#     metadata:
+#       labels:
+#         app: my-api
+#     spec:
+#       terminationGracePeriodSeconds: 30
+#       containers:
+#         - name: my-api
+#           image: your-dockerhub/my-api:1.0.0
+#           imagePullPolicy: Always
+#           ports:
+#             - containerPort: 3000
+#           envFrom:
+#             - configMapRef:
+#                 name: my-api-config
+#             - secretRef:
+#                 name: my-api-secret
+#           resources:
+#             requests:
+#               cpu: "100m"
+#               memory: "128Mi"
+#             limits:
+#               cpu: "500m"
+#               memory: "256Mi"

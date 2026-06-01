@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: api-deploy-demo-secrets-config
+  name: api-deploy-demo-secrets-config
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-deploy-demo-secrets-config
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: api-deploy-demo-secrets-config
+    spec:
+      containers:
+        - image: api-demo-cms:local
+          name: api-demo-cms
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SECRET_ENV_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: mysecret
+                  key: SECRET_ENV_VALUE
+            - name: NORMAL_ENV_VALUE
+              valueFrom:
+                configMapKeyRef:
+                  name: node-demo-config
+                  key: NORMAL_ENV_VALUE
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+status: {}
