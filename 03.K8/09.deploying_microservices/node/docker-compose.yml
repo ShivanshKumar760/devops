@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  service-a:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - TAX_SERVICE_URL=http://service-b:4000
+    depends_on:
+      - service-b
+    networks:
+      - tax-calculator-network
+
+  service-b:
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile
+    ports:
+      - "4001:4000"
+    networks:
+      - tax-calculator-network
+
+networks:
+  tax-calculator-network:
+    driver: bridge

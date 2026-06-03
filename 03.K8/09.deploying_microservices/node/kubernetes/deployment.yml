@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-a
+  template:
+    metadata:
+      labels:
+        app: service-a
+    spec:
+      containers:
+        - name: service-a-container
+          image: service-a-node
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          ports:
+            - containerPort: 3000
+          env:
+            - name: HELLO_MESSAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: node-microservices-config
+                  key: HELLO_MESSAGE
+            - name: TAX_SERVICE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: node-microservices-secret
+                  key: TAX_SERVICE_URL
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-b-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-b
+  template:
+    metadata:
+      labels:
+        app: service-b
+    spec:
+      containers:
+        - name: service-b-container
+          image: service-b-node
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          ports:
+            - containerPort: 4000
