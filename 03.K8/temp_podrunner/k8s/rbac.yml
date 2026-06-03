@@ -1,29 +1,59 @@
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   name: nginx-operator
+#   namespace: default
+# ---
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: Role
+# metadata:
+#   name: nginx-operator
+#   namespace: default
+# rules:
+#   - apiGroups: [""]
+#     resources: ["pods", "services"]
+#     verbs: ["create", "delete", "get", "list"]
+# ---
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: nginx-operator
+#   namespace: default
+# subjects:
+#   - kind: ServiceAccount
+#     name: nginx-operator
+#     namespace: default
+# roleRef:
+#   kind: Role
+#   name: nginx-operator
+#   apiGroup: rbac.authorization.k8s.io
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: nginx-operator
+  name: code-runner
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: nginx-operator
+  name: code-runner
   namespace: default
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services"]
-    verbs: ["create", "delete", "get", "list"]
+    resources: ["pods", "pods/log"]
+    verbs: ["create", "get", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: nginx-operator
+  name: code-runner
   namespace: default
 subjects:
   - kind: ServiceAccount
-    name: nginx-operator
+    name: code-runner
     namespace: default
 roleRef:
   kind: Role
-  name: nginx-operator
+  name: code-runner
   apiGroup: rbac.authorization.k8s.io
