@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-b-entry
+spec:
+  selector:
+    app: service-b
+  type: ClusterIP
+  ports:
+    - port: 4000
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-a-entry
+spec:
+  selector:
+    app: service-a
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30100
