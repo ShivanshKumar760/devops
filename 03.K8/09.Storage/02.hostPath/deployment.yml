@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: hostpath-demo
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: hostpath-demo
+
+  template:
+    metadata:
+      labels:
+        app: hostpath-demo
+
+    spec:
+      containers:
+        - name: app
+          image: node:20
+
+          command:
+            - sh
+            - -c
+
+          args:
+            - |
+              mkdir -p /app &&
+              cd /app &&
+              npm init -y &&
+              npm install express &&
+              cat > server.js <<'EOF'
+              const express=require("express");
+              const fs=require("fs");
+              const app=express();
+
+              app.get("/write",(req,res)=>{
+                fs.appendFileSync("/app/data/logs.txt","hello\n");
+                res.send("written");
+              });
+
+              app.get("/read",(req,res)=>{
+                if(!fs.existsSync("/app/data/logs.txt")){
+                  return res.send("empty");
+                }
+                res.send(fs.readFileSync("/app/data/logs.txt","utf8"));
+              });
+
+              app.listen(3000);
+              EOF
+
+              node server.js
+
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+
+          volumeMounts:
+            - mountPath: /app/data
+              name: storage
+
+      volumes:
+        - name: storage
+
+          hostPath:
+            path: /tmp/demo-storage
+            type: DirectoryOrCreate
