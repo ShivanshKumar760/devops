@@ -1,0 +1,22 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: example-config
+webhooks:
+  - name: my-webhook.example.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        namespace: my-namespace
+        name: my-webhook
+    sideEffects: None
+    objectSelector:
+      matchLabels:
+        foo: bar
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: ["*"]
+        apiVersions: ["*"]
+        resources: ["*"]
+        scope: "*"
