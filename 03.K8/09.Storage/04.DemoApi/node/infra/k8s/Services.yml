@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs-api-service
+spec:
+  selector:
+    app: nodejs-api
+  ports:
+    - port: 3000 #this is the port that the service will listen on so every service is like a isolated pod so different service can have the same port number but they will not conflict with each other because they are in different services
+      targetPort: 3000
+      nodePort: 30001 #this is the port that will be exposed on the node so we can access the service from outside the cluster using this port number , but  node port can not be duplicated across different services because it is exposed on the node level so if we have two services with the same node port number then it will cause a conflict and we will not be able to access any of the services from outside the cluster
+  type: NodePort
