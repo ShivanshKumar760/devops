@@ -1,0 +1,270 @@
+{
+  "info": {
+    "name": "Dukaan API",
+    "_postman_id": "c8a3c0c9-8d0b-4d9a-9d8d-1f3b2c4d5e6f",
+    "description": "Dukaan Seller & Buyer APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "seller_token",
+      "value": ""
+    },
+    {
+      "key": "buyer_token",
+      "value": ""
+    },
+    {
+      "key": "store_id",
+      "value": "1"
+    },
+    {
+      "key": "store_link",
+      "value": "raj-electronics-a3f9c1"
+    },
+    {
+      "key": "session_id",
+      "value": "test-session-abc123"
+    }
+  ],
+  "item": [
+    {
+      "name": "Seller",
+      "item": [
+        {
+          "name": "Seller Signup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"9876543210\",\n  \"otp\": \"1234\"\n}"
+            },
+            "url": "{{base_url}}/api/seller/signup"
+          }
+        },
+        {
+          "name": "Create Store",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{seller_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Raj Electronics\",\n  \"address\": \"FC Road, Pune, Maharashtra 411004\"\n}"
+            },
+            "url": "{{base_url}}/api/seller/store"
+          }
+        },
+        {
+          "name": "Add Product - Electronics",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{seller_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Laptop\",\n  \"description\": \"15-inch laptop with 16GB RAM and 512GB SSD\",\n  \"mrp\": 55000,\n  \"sale_price\": 48000,\n  \"image_url\": \"https://example.com/images/laptop.jpg\",\n  \"category\": \"Electronics\"\n}"
+            },
+            "url": "{{base_url}}/api/seller/store/{{store_id}}/product"
+          }
+        },
+        {
+          "name": "Add Product - Accessories",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{seller_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"USB-C Hub\",\n  \"description\": \"7-in-1 USB-C Hub with HDMI, USB 3.0 and PD charging\",\n  \"mrp\": 3500,\n  \"sale_price\": 2999,\n  \"image_url\": \"https://example.com/images/usb-hub.jpg\",\n  \"category\": \"Accessories\"\n}"
+            },
+            "url": "{{base_url}}/api/seller/store/{{store_id}}/product"
+          }
+        },
+        {
+          "name": "Add Product - No Category",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{seller_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Warranty Card\",\n  \"description\": \"Extended warranty for any product\",\n  \"mrp\": 999,\n  \"sale_price\": 799,\n  \"image_url\": \"\",\n  \"category\": \"\"\n}"
+            },
+            "url": "{{base_url}}/api/seller/store/{{store_id}}/product"
+          }
+        },
+        {
+          "name": "Get Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{seller_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/seller/store/{{store_id}}/orders"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Buyer",
+      "item": [
+        {
+          "name": "Get Store Info",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/buyer/store/{{store_link}}"
+          }
+        },
+        {
+          "name": "Get Catalog",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/buyer/store/{{store_link}}/catalog"
+          }
+        },
+        {
+          "name": "Add To Cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"store_link\": \"{{store_link}}\",\n  \"product_id\": 1,\n  \"qty\": 2\n}"
+            },
+            "url": "{{base_url}}/api/buyer/cart"
+          }
+        },
+        {
+          "name": "Update Cart Quantity",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"store_link\": \"{{store_link}}\",\n  \"product_id\": 1,\n  \"qty\": 3\n}"
+            },
+            "url": "{{base_url}}/api/buyer/cart"
+          }
+        },
+        {
+          "name": "Remove From Cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"store_link\": \"{{store_link}}\",\n  \"product_id\": 2,\n  \"qty\": 0\n}"
+            },
+            "url": "{{base_url}}/api/buyer/cart"
+          }
+        },
+        {
+          "name": "Get Cart",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/buyer/cart/{{session_id}}"
+          }
+        },
+        {
+          "name": "Buyer Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"9000000001\",\n  \"otp\": \"0000\",\n  \"address\": \"Kothrud, Pune 411038\"\n}"
+            },
+            "url": "{{base_url}}/api/buyer/login"
+          }
+        },
+        {
+          "name": "Place Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{buyer_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\"\n}"
+            },
+            "url": "{{base_url}}/api/buyer/order"
+          }
+        }
+      ]
+    }
+  ]
+}
