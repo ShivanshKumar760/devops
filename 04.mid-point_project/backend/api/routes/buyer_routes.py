@@ -82,7 +82,7 @@ def update_cart():
     qty=0 removes the item. Works for unauthenticated users via session_id.
     """
     data = request.get_json()
-    session_id = data.get("session_id") or str(uuid.uuid4())
+    session_id = data.get("session_id") or str(uuid.uuid4()) #this is basically creating a new session
     store_link = data.get("store_link")
     product_id = data.get("product_id")
     qty = data.get("qty", 1)
