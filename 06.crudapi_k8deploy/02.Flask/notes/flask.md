@@ -1,1338 +1,438 @@
-# Dukaan Backend API — Assessment
+# Flask + PostgreSQL REST API Notes
 
-A Flask + PostgreSQL backend supporting seller/buyer workflows, JWT auth, Docker, Kubernetes (with HPA, PVC, ConfigMap, Secrets), and Tilt for local dev.
+Covers: **Python REST API Development with Flask + SQL** and **Non-Blocking API Calls with Threading and Concurrency in Python**.
 
----
-
-## Project Structure
-
-```
-dukaan/
-├── app/
-│   ├── __init__.py
-│   ├── models.py
-│   ├── auth.py
-│   ├── seller_routes.py
-│   ├── buyer_routes.py
-│   └── utils.py
-├── migrations/
-├── config.py
-├── run.py
-├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml
-├── k8s/
-│   ├── namespace.yaml
-│   ├── configmap.yaml
-│   ├── secret.yaml
-│   ├── pvc.yaml
-│   ├── postgres-deployment.yaml
-│   ├── postgres-service.yaml
-│   ├── app-deployment.yaml
-│   ├── app-service.yaml
-│   └── hpa.yaml
-└── Tiltfile
-```
+We'll keep building on the same Instagram-style schema from the SQL notes (`users`, `posts`, `likes`) — now we expose it over HTTP using Flask.
 
 ---
 
-## `requirements.txt`
+## 0. What We're Building
 
-```txt
-Flask==3.0.3
-Flask-SQLAlchemy==3.1.1
-Flask-Migrate==4.0.7
-Flask-JWT-Extended==4.6.0
-psycopg2-binary==2.9.9
-python-dotenv==1.0.1
-Werkzeug==3.0.3
+A small REST API with endpoints to manage users, posts, and likes:
+
+| Method | Endpoint                      | What it does                           |
+| ------ | ----------------------------- | -------------------------------------- |
+| GET    | `/users`                      | List all users                         |
+| GET    | `/users/<id>`                 | Get one user                           |
+| POST   | `/users`                      | Create a user                          |
+| GET    | `/posts`                      | List all posts (with owner's username) |
+| POST   | `/posts`                      | Create a post                          |
+| GET    | `/posts/<id>/likes`           | List who liked a post                  |
+| POST   | `/posts/<id>/likes`           | Like a post                            |
+| DELETE | `/posts/<id>/likes/<user_id>` | Unlike a post                          |
+
+---
+
+## 1. Project Setup
+
+```bash
+mkdir instagram-api && cd instagram-api
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+pip install flask psycopg2-binary python-dotenv
+```
+
+- **flask** — the web framework
+- **psycopg2-binary** — PostgreSQL driver for Python
+- **python-dotenv** — loads DB credentials from a `.env` file instead of hardcoding them
+
+**`.env`** (never commit this file):
+
+```
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=instagram
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
+
+**Project structure:**
+
+```
+instagram-api/
+├── .env
+├── app.py
+└── db.py
 ```
 
 ---
 
-## `config.py`
+## 2. Flask Basics — Your First Route
 
 ```python
-import os
+# app.py
+from flask import Flask, jsonify
 
-class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL",
-        "postgresql://dukaan:dukaan123@localhost:5432/dukaan_db"
-    )
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "jwt-secret-key")
-    JWT_ACCESS_TOKEN_EXPIRES = False  # tokens don't expire for this assessment
-```
+app = Flask(__name__)
 
----
-
-## `app/__init__.py`
-
-```python
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_jwt_extended import JWTManager
-
-db = SQLAlchemy()
-migrate = Migrate()
-jwt = JWTManager()
-
-
-def create_app():
-    app = Flask(__name__)
-    app.config.from_object("config.Config")
-
-    db.init_app(app)
-    migrate.init_app(app, db)
-    jwt.init_app(app)
-
-    from app.seller_routes import seller_bp
-    from app.buyer_routes import buyer_bp
-
-    app.register_blueprint(seller_bp, url_prefix="/api/seller")
-    app.register_blueprint(buyer_bp, url_prefix="/api/buyer")
-
-    return app
-```
-
----
-
-## `app/models.py`
-
-```python
-from app import db
-from datetime import datetime
-
-
-class Account(db.Model):
-    __tablename__ = "accounts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    mobile = db.Column(db.String(15), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    stores = db.relationship("Store", back_populates="account", lazy=True)
-
-    def to_dict(self):
-        return {"id": self.id, "mobile": self.mobile}
-
-
-class Store(db.Model):
-    __tablename__ = "stores"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    address = db.Column(db.Text, nullable=True)
-    store_link = db.Column(db.String(512), unique=True, nullable=False)
-    account_id = db.Column(db.Integer, db.ForeignKey("accounts.id"), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    account = db.relationship("Account", back_populates="stores")
-    products = db.relationship("Product", back_populates="store", lazy=True)
-    orders = db.relationship("Order", back_populates="store", lazy=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "address": self.address,
-            "store_link": self.store_link,
-        }
-
-
-class Category(db.Model):
-    __tablename__ = "categories"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False)
-
-    products = db.relationship("Product", back_populates="category", lazy=True)
-
-    __table_args__ = (
-        db.UniqueConstraint("name", "store_id", name="uq_category_store"),
-    )
-
-    def to_dict(self):
-        return {"id": self.id, "name": self.name}
-
-
-class Product(db.Model):
-    __tablename__ = "products"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    mrp = db.Column(db.Numeric(10, 2), nullable=False)
-    sale_price = db.Column(db.Numeric(10, 2), nullable=False)
-    image_url = db.Column(db.String(512), nullable=True)
-    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False)
-    category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    store = db.relationship("Store", back_populates="products")
-    category = db.relationship("Category", back_populates="products")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "mrp": str(self.mrp),
-            "sale_price": str(self.sale_price),
-            "image_url": self.image_url,
-            "category": self.category.to_dict() if self.category else None,
-        }
-
-
-class Customer(db.Model):
-    __tablename__ = "customers"
-
-    id = db.Column(db.Integer, primary_key=True)
-    mobile = db.Column(db.String(15), unique=True, nullable=False)
-    address = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    orders = db.relationship("Order", back_populates="customer", lazy=True)
-    carts = db.relationship("Cart", back_populates="customer", lazy=True)
-
-    def to_dict(self):
-        return {"id": self.id, "mobile": self.mobile, "address": self.address}
-
-
-class Cart(db.Model):
-    __tablename__ = "carts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.String(255), unique=True, nullable=False)  # for unauthenticated users
-    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True)
-    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    customer = db.relationship("Customer", back_populates="carts")
-    items = db.relationship("CartItem", back_populates="cart", cascade="all, delete-orphan", lazy=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "session_id": self.session_id,
-            "store_id": self.store_id,
-            "items": [item.to_dict() for item in self.items],
-        }
-
-
-class CartItem(db.Model):
-    __tablename__ = "cart_items"
-
-    id = db.Column(db.Integer, primary_key=True)
-    cart_id = db.Column(db.Integer, db.ForeignKey("carts.id"), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
-    qty = db.Column(db.Integer, nullable=False, default=1)
-
-    cart = db.relationship("Cart", back_populates="items")
-    product = db.relationship("Product")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "product": self.product.to_dict() if self.product else None,
-            "qty": self.qty,
-        }
-
-
-class Order(db.Model):
-    __tablename__ = "orders"
-
-    id = db.Column(db.Integer, primary_key=True)
-    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False)
-    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False)
-    total_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
-    status = db.Column(db.String(50), default="pending")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    store = db.relationship("Store", back_populates="orders")
-    customer = db.relationship("Customer", back_populates="orders")
-    items = db.relationship("OrderItem", back_populates="order", cascade="all, delete-orphan", lazy=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "store_id": self.store_id,
-            "customer_id": self.customer_id,
-            "total_amount": str(self.total_amount),
-            "status": self.status,
-            "items": [item.to_dict() for item in self.items],
-            "created_at": self.created_at.isoformat(),
-        }
-
-
-class OrderItem(db.Model):
-    __tablename__ = "order_items"
-
-    id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(db.Integer, db.ForeignKey("orders.id"), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
-    qty = db.Column(db.Integer, nullable=False)
-    unit_price = db.Column(db.Numeric(10, 2), nullable=False)
-
-    order = db.relationship("Order", back_populates="items")
-    product = db.relationship("Product")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "product_id": self.product_id,
-            "product_name": self.product.name if self.product else None,
-            "qty": self.qty,
-            "unit_price": str(self.unit_price),
-        }
-```
-
----
-
-## `app/utils.py`
-
-```python
-import re
-import uuid
-
-
-def slugify(text: str) -> str:
-    """Convert store name to URL-safe slug."""
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_-]+", "-", text)
-    text = re.sub(r"^-+|-+$", "", text)
-    return text
-
-
-def generate_store_link(store_name: str) -> str:
-    slug = slugify(store_name)
-    unique_suffix = uuid.uuid4().hex[:6]
-    return f"{slug}-{unique_suffix}"
-```
-
----
-
-## `app/auth.py`
-
-```python
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
-from app import db
-from app.models import Account, Customer
-
-auth_bp = Blueprint("auth", __name__)
-
-
-def issue_seller_token(mobile: str):
-    """Create seller account if not exists and return JWT."""
-    account = Account.query.filter_by(mobile=mobile).first()
-    if not account:
-        account = Account(mobile=mobile)
-        db.session.add(account)
-        db.session.commit()
-    token = create_access_token(identity={"id": account.id, "role": "seller"})
-    return account, token
-
-
-def issue_buyer_token(mobile: str):
-    """Create customer record if not exists and return JWT."""
-    customer = Customer.query.filter_by(mobile=mobile).first()
-    if not customer:
-        customer = Customer(mobile=mobile)
-        db.session.add(customer)
-        db.session.commit()
-    token = create_access_token(identity={"id": customer.id, "role": "buyer"})
-    return customer, token
-```
-
----
-
-## `app/seller_routes.py`
-
-```python
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from app import db
-from app.models import Account, Store, Product, Category, Order
-from app.auth import issue_seller_token
-from app.utils import generate_store_link
-
-seller_bp = Blueprint("seller", __name__)
-
-
-# ─── 1. Seller Signup ────────────────────────────────────────────────────────
-
-@seller_bp.route("/signup", methods=["POST"])
-def seller_signup():
-    """
-    POST /api/seller/signup
-    Body: { "mobile": "9876543210", "otp": "1234" }
-    OTP is accepted as-is (no real validation per spec).
-    """
-    data = request.get_json()
-    mobile = data.get("mobile")
-    otp = data.get("otp")
-
-    if not mobile or not otp:
-        return jsonify({"error": "mobile and otp are required"}), 400
-
-    account, token = issue_seller_token(mobile)
-
-    return jsonify({
-        "message": "Signup successful",
-        "account": account.to_dict(),
-        "token": token,
-    }), 201
-
-
-# ─── 2. Create Store ─────────────────────────────────────────────────────────
-
-@seller_bp.route("/store", methods=["POST"])
-@jwt_required()
-def create_store():
-    """
-    POST /api/seller/store
-    Headers: Authorization: Bearer <token>
-    Body: { "name": "My Shop", "address": "123 MG Road, Pune" }
-    """
-    identity = get_jwt_identity()
-    if identity.get("role") != "seller":
-        return jsonify({"error": "Seller access only"}), 403
-
-    data = request.get_json()
-    name = data.get("name")
-    address = data.get("address", "")
-
-    if not name:
-        return jsonify({"error": "Store name is required"}), 400
-
-    store_link = generate_store_link(name)
-
-    store = Store(
-        name=name,
-        address=address,
-        store_link=store_link,
-        account_id=identity["id"],
-    )
-    db.session.add(store)
-    db.session.commit()
-
-    return jsonify({
-        "store_id": store.id,
-        "store_link": store.store_link,
-        "name": store.name,
-        "address": store.address,
-    }), 201
-
-
-# ─── 3. Add Product ──────────────────────────────────────────────────────────
-
-@seller_bp.route("/store/<int:store_id>/product", methods=["POST"])
-@jwt_required()
-def add_product(store_id):
-    """
-    POST /api/seller/store/<store_id>/product
-    Headers: Authorization: Bearer <token>
-    Body: {
-        "name": "Laptop", "description": "...", "mrp": 50000,
-        "sale_price": 45000, "image_url": "http://...", "category": "Electronics"
-    }
-    """
-    identity = get_jwt_identity()
-    if identity.get("role") != "seller":
-        return jsonify({"error": "Seller access only"}), 403
-
-    store = Store.query.filter_by(id=store_id, account_id=identity["id"]).first()
-    if not store:
-        return jsonify({"error": "Store not found or access denied"}), 404
-
-    data = request.get_json()
-    name = data.get("name")
-    description = data.get("description", "")
-    mrp = data.get("mrp")
-    sale_price = data.get("sale_price")
-    image_url = data.get("image_url", "")
-    category_name = data.get("category", "")
-
-    if not name or mrp is None or sale_price is None:
-        return jsonify({"error": "name, mrp and sale_price are required"}), 400
-
-    # Create category if it doesn't exist
-    category = None
-    if category_name:
-        category = Category.query.filter_by(name=category_name, store_id=store_id).first()
-        if not category:
-            category = Category(name=category_name, store_id=store_id)
-            db.session.add(category)
-            db.session.flush()  # get ID before commit
-
-    product = Product(
-        name=name,
-        description=description,
-        mrp=mrp,
-        sale_price=sale_price,
-        image_url=image_url,
-        store_id=store_id,
-        category_id=category.id if category else None,
-    )
-    db.session.add(product)
-    db.session.commit()
-
-    return jsonify({
-        "id": product.id,
-        "name": product.name,
-        "image_url": product.image_url,
-    }), 201
-
-
-# ─── 4. Get Seller Orders ────────────────────────────────────────────────────
-
-@seller_bp.route("/store/<int:store_id>/orders", methods=["GET"])
-@jwt_required()
-def get_orders(store_id):
-    """
-    GET /api/seller/store/<store_id>/orders
-    Returns all orders for the store.
-    """
-    identity = get_jwt_identity()
-    if identity.get("role") != "seller":
-        return jsonify({"error": "Seller access only"}), 403
-
-    store = Store.query.filter_by(id=store_id, account_id=identity["id"]).first()
-    if not store:
-        return jsonify({"error": "Store not found or access denied"}), 404
-
-    orders = Order.query.filter_by(store_id=store_id).all()
-    return jsonify({"orders": [o.to_dict() for o in orders]}), 200
-```
-
----
-
-## `app/buyer_routes.py`
-
-```python
-import uuid
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
-from sqlalchemy import func
-from app import db
-from app.models import Store, Product, Category, Cart, CartItem, Order, OrderItem, Customer
-from app.auth import issue_buyer_token
-
-buyer_bp = Blueprint("buyer", __name__)
-
-
-# ─── 1. Get Store Details ────────────────────────────────────────────────────
-
-@buyer_bp.route("/store/<store_link>", methods=["GET"])
-def get_store(store_link):
-    """
-    GET /api/buyer/store/<store_link>
-    Returns store info by unique link.
-    """
-    store = Store.query.filter_by(store_link=store_link).first()
-    if not store:
-        return jsonify({"error": "Store not found"}), 404
-
-    return jsonify({
-        "store_id": store.id,
-        "name": store.name,
-        "address": store.address,
-    }), 200
-
-
-# ─── 2. Get Product Catalog ──────────────────────────────────────────────────
-
-@buyer_bp.route("/store/<store_link>/catalog", methods=["GET"])
-def get_catalog(store_link):
-    """
-    GET /api/buyer/store/<store_link>/catalog
-    Returns products grouped by category, sorted by product count desc.
-    """
-    store = Store.query.filter_by(store_link=store_link).first()
-    if not store:
-        return jsonify({"error": "Store not found"}), 404
-
-    # Categories with product counts, sorted descending
-    categories = (
-        db.session.query(Category, func.count(Product.id).label("product_count"))
-        .outerjoin(Product, Product.category_id == Category.id)
-        .filter(Category.store_id == store.id)
-        .group_by(Category.id)
-        .order_by(func.count(Product.id).desc())
-        .all()
-    )
-
-    catalog = []
-    for cat, count in categories:
-        products = Product.query.filter_by(store_id=store.id, category_id=cat.id).all()
-        catalog.append({
-            "category": cat.to_dict(),
-            "product_count": count,
-            "products": [p.to_dict() for p in products],
-        })
-
-    # Products with no category
-    uncategorised = Product.query.filter_by(store_id=store.id, category_id=None).all()
-    if uncategorised:
-        catalog.append({
-            "category": {"id": None, "name": "Uncategorised"},
-            "product_count": len(uncategorised),
-            "products": [p.to_dict() for p in uncategorised],
-        })
-
-    return jsonify({"store_id": store.id, "catalog": catalog}), 200
-
-
-# ─── 3a. Add / Update Cart Item ──────────────────────────────────────────────
-
-@buyer_bp.route("/cart", methods=["POST"])
-def update_cart():
-    """
-    POST /api/buyer/cart
-    Body: { "session_id": "uuid-string", "store_link": "my-shop-abc123",
-            "product_id": 1, "qty": 2 }
-    qty=0 removes the item. Works for unauthenticated users via session_id.
-    """
-    data = request.get_json()
-    session_id = data.get("session_id") or str(uuid.uuid4())
-    store_link = data.get("store_link")
-    product_id = data.get("product_id")
-    qty = data.get("qty", 1)
-
-    if not store_link or product_id is None:
-        return jsonify({"error": "store_link and product_id are required"}), 400
-
-    store = Store.query.filter_by(store_link=store_link).first()
-    if not store:
-        return jsonify({"error": "Store not found"}), 404
-
-    product = Product.query.filter_by(id=product_id, store_id=store.id).first()
-    if not product:
-        return jsonify({"error": "Product not found in this store"}), 404
-
-    # Get or create cart
-    cart = Cart.query.filter_by(session_id=session_id, store_id=store.id).first()
-    if not cart:
-        cart = Cart(session_id=session_id, store_id=store.id)
-        db.session.add(cart)
-        db.session.flush()
-
-    # Get or create cart item
-    item = CartItem.query.filter_by(cart_id=cart.id, product_id=product_id).first()
-
-    if qty <= 0:
-        if item:
-            db.session.delete(item)
-    else:
-        if item:
-            item.qty = qty
-        else:
-            item = CartItem(cart_id=cart.id, product_id=product_id, qty=qty)
-            db.session.add(item)
-
-    db.session.commit()
-    return jsonify({"session_id": session_id, "cart": cart.to_dict()}), 200
-
-
-# ─── 3b. Get Cart ────────────────────────────────────────────────────────────
-
-@buyer_bp.route("/cart/<session_id>", methods=["GET"])
-def get_cart(session_id):
-    """GET /api/buyer/cart/<session_id>"""
-    cart = Cart.query.filter_by(session_id=session_id).first()
-    if not cart:
-        return jsonify({"error": "Cart not found"}), 404
-    return jsonify(cart.to_dict()), 200
-
-
-# ─── 4a. Buyer Login / Token ─────────────────────────────────────────────────
-
-@buyer_bp.route("/login", methods=["POST"])
-def buyer_login():
-    """
-    POST /api/buyer/login
-    Body: { "mobile": "9876543210", "otp": "0000", "address": "optional" }
-    OTP bypass — any combination issues a token.
-    """
-    data = request.get_json()
-    mobile = data.get("mobile")
-    otp = data.get("otp")
-    address = data.get("address", "")
-
-    if not mobile or not otp:
-        return jsonify({"error": "mobile and otp are required"}), 400
-
-    customer, token = issue_buyer_token(mobile)
-
-    if address and not customer.address:
-        customer.address = address
-        db.session.commit()
-
-    return jsonify({
-        "message": "Login successful",
-        "customer": customer.to_dict(),
-        "token": token,
-    }), 200
-
-
-# ─── 4b. Place Order ─────────────────────────────────────────────────────────
-
-@buyer_bp.route("/order", methods=["POST"])
-@jwt_required()
-def place_order():
-    """
-    POST /api/buyer/order
-    Headers: Authorization: Bearer <token>
-    Body: { "session_id": "uuid-string" }
-    Converts the cart into an order.
-    """
-    identity = get_jwt_identity()
-    if identity.get("role") != "buyer":
-        return jsonify({"error": "Buyer access only"}), 403
-
-    data = request.get_json()
-    session_id = data.get("session_id")
-
-    if not session_id:
-        return jsonify({"error": "session_id is required"}), 400
-
-    cart = Cart.query.filter_by(session_id=session_id).first()
-    if not cart or not cart.items:
-        return jsonify({"error": "Cart is empty or not found"}), 400
-
-    customer_id = identity["id"]
-
-    # Link cart to customer if not already linked
-    if not cart.customer_id:
-        cart.customer_id = customer_id
-
-    # Build order
-    total = sum(item.product.sale_price * item.qty for item in cart.items)
-
-    order = Order(
-        store_id=cart.store_id,
-        customer_id=customer_id,
-        total_amount=total,
-        status="pending",
-    )
-    db.session.add(order)
-    db.session.flush()
-
-    for item in cart.items:
-        order_item = OrderItem(
-            order_id=order.id,
-            product_id=item.product_id,
-            qty=item.qty,
-            unit_price=item.product.sale_price,
-        )
-        db.session.add(order_item)
-
-    # Clear the cart after order
-    for item in cart.items:
-        db.session.delete(item)
-
-    db.session.commit()
-
-    return jsonify({
-        "message": "Order placed successfully",
-        "order_id": order.id,
-        "total_amount": str(order.total_amount),
-    }), 201
-```
-
----
-
-## `run.py`
-
-```python
-from app import create_app, db
-
-app = create_app()
+@app.route("/")
+def home():
+    return jsonify({"message": "Instagram API is running"})
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True, port=5000)
 ```
+
+Run it with `python app.py`, then visit `http://localhost:5000/`.
+
+- `@app.route("/")` — maps a URL path to a Python function (a "view").
+- `jsonify(...)` — converts a Python dict into a proper JSON HTTP response (sets the `Content-Type` header for you).
+- `debug=True` — auto-reloads on code changes and shows detailed error pages. **Never use this in production.**
 
 ---
 
-## `Dockerfile`
+## 3. Connecting Flask to PostgreSQL
 
-```dockerfile
-FROM python:3.11-slim
+We use `psycopg2` to talk to Postgres. Two important upgrades over the bare-bones version:
 
-WORKDIR /app
-
-# System deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-EXPOSE 5000
-
-CMD ["python", "run.py"]
-```
-
----
-
-## `docker-compose.yml`
-
-```yaml
-version: "3.9"
-
-services:
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: dukaan_db
-      POSTGRES_USER: dukaan
-      POSTGRES_PASSWORD: dukaan123
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  app:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      DATABASE_URL: postgresql://dukaan:dukaan123@db:5432/dukaan_db
-      SECRET_KEY: super-secret-key
-      JWT_SECRET_KEY: jwt-super-secret
-    depends_on:
-      - db
-
-volumes:
-  pgdata:
-```
-
----
-
-## Kubernetes Manifests
-
-### `k8s/namespace.yaml`
-
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: dukaan
-```
-
----
-
-### `k8s/configmap.yaml`
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dukaan-config
-  namespace: dukaan
-data:
-  DATABASE_HOST: "postgres-service"
-  DATABASE_PORT: "5432"
-  DATABASE_NAME: "dukaan_db"
-  DATABASE_USER: "dukaan"
-  FLASK_ENV: "production"
-```
-
----
-
-### `k8s/secret.yaml`
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: dukaan-secret
-  namespace: dukaan
-type: Opaque
-# Values below are base64-encoded. To encode: echo -n 'value' | base64
-# dukaan123     -> ZHVrYWFuMTIz
-# super-secret  -> c3VwZXItc2VjcmV0
-# jwt-secret    -> and3Qtc2VjcmV0
-data:
-  DATABASE_PASSWORD: ZHVrYWFuMTIz
-  SECRET_KEY: c3VwZXItc2VjcmV0
-  JWT_SECRET_KEY: and3Qtc2VjcmV0
-```
-
----
-
-### `k8s/pvc.yaml`
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-  namespace: dukaan
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-```
-
----
-
-### `k8s/postgres-deployment.yaml`
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-  namespace: dukaan
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      containers:
-        - name: postgres
-          image: postgres:15-alpine
-          ports:
-            - containerPort: 5432
-          env:
-            - name: POSTGRES_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_NAME
-            - name: POSTGRES_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dukaan-secret
-                  key: DATABASE_PASSWORD
-          volumeMounts:
-            - name: postgres-storage
-              mountPath: /var/lib/postgresql/data
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-      volumes:
-        - name: postgres-storage
-          persistentVolumeClaim:
-            claimName: postgres-pvc
-```
-
----
-
-### `k8s/postgres-service.yaml`
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres-service
-  namespace: dukaan
-spec:
-  selector:
-    app: postgres
-  ports:
-    - port: 5432
-      targetPort: 5432
-  type: ClusterIP
-```
-
----
-
-### `k8s/app-deployment.yaml`
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: dukaan-app
-  namespace: dukaan
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: dukaan-app
-  template:
-    metadata:
-      labels:
-        app: dukaan-app
-    spec:
-      containers:
-        - name: dukaan-app
-          image: dukaan-app:latest
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 5000
-          env:
-            - name: DATABASE_URL
-              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)"
-            - name: DATABASE_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_HOST
-            - name: DATABASE_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_PORT
-            - name: DATABASE_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_NAME
-            - name: DATABASE_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: dukaan-config
-                  key: DATABASE_USER
-            - name: DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dukaan-secret
-                  key: DATABASE_PASSWORD
-            - name: SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dukaan-secret
-                  key: SECRET_KEY
-            - name: JWT_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dukaan-secret
-                  key: JWT_SECRET_KEY
-          readinessProbe:
-            httpGet:
-              path: /api/buyer/store/test
-              port: 5000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-```
-
----
-
-### `k8s/app-service.yaml`
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: dukaan-app-service
-  namespace: dukaan
-spec:
-  selector:
-    app: dukaan-app
-  ports:
-    - name: http
-      port: 80
-      targetPort: 5000
-      nodePort: 30080
-  type: NodePort
-```
-
----
-
-### `k8s/hpa.yaml`
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: dukaan-app-hpa
-  namespace: dukaan
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: dukaan-app
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 60
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 70
-```
-
----
-
-## `Tiltfile`
+1. **`RealDictCursor`** — returns rows as dictionaries (`{'user_id': 1, 'username': 'elonmusk'}`) instead of plain tuples, so `jsonify()` can serialize them directly.
+2. **A connection pool** — instead of opening a brand-new database connection on every request (slow, and Postgres has a connection limit), we keep a small pool of reusable connections open.
 
 ```python
-# Tiltfile — local dev with Tilt (https://tilt.dev)
+# db.py
+import os
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 
-# ── Build the app image ───────────────────────────────────────────────────────
-docker_build(
-    "dukaan-app",
-    ".",
-    dockerfile="Dockerfile",
-    live_update=[
-        # Sync local code changes into the running container without full rebuild
-        sync("./app", "/app/app"),
-        sync("./run.py", "/app/run.py"),
-        sync("./config.py", "/app/config.py"),
-        run("pip install -r /app/requirements.txt", trigger=["./requirements.txt"]),
-    ],
+load_dotenv()
+
+connection_pool = psycopg2.pool.SimpleConnectionPool(
+    1, 10,   # min 1, max 10 connections
+    host=os.getenv("DB_HOST"),
+    port=os.getenv("DB_PORT"),
+    dbname=os.getenv("DB_NAME"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
 )
 
-# ── Apply K8s manifests ───────────────────────────────────────────────────────
-k8s_yaml([
-    "k8s/namespace.yaml",
-    "k8s/configmap.yaml",
-    "k8s/secret.yaml",
-    "k8s/pvc.yaml",
-    "k8s/postgres-deployment.yaml",
-    "k8s/postgres-service.yaml",
-    "k8s/app-deployment.yaml",
-    "k8s/app-service.yaml",
-    "k8s/hpa.yaml",
-])
+def get_connection():
+    return connection_pool.getconn()
 
-# ── Resource configuration ────────────────────────────────────────────────────
-k8s_resource(
-    "postgres",
-    port_forwards=["5432:5432"],
-    labels=["database"],
-)
-
-k8s_resource(
-    "dukaan-app",
-    port_forwards=["5000:5000"],
-    resource_deps=["postgres"],
-    labels=["backend"],
-)
+def release_connection(conn):
+    connection_pool.putconn(conn)
 ```
+
+**Why a pool, and not just one global connection?** A single shared connection breaks under concurrent requests — two requests querying it at once can corrupt each other's results. A single _new_ connection per request works but is slow (TCP handshake + auth every time) and can exhaust Postgres's `max_connections` under load. A pool gives you the best of both: connections are reused, but each request still gets exclusive use of one for its duration.
 
 ---
 
-## API Reference
+## 4. Building REST API Endpoints (CRUD)
 
-### Seller Endpoints
+### GET — list all users
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/seller/signup` | None | Signup with mobile + OTP, receive JWT |
-| POST | `/api/seller/store` | Bearer JWT | Create a new store |
-| POST | `/api/seller/store/<store_id>/product` | Bearer JWT | Add product to store |
-| GET | `/api/seller/store/<store_id>/orders` | Bearer JWT | View all orders for store |
+```python
+# app.py
+from flask import Flask, jsonify, request
+from psycopg2.extras import RealDictCursor
+from db import get_connection, release_connection
 
-### Buyer Endpoints
+app = Flask(__name__)
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/buyer/store/<store_link>` | None | Get store info by link |
-| GET | `/api/buyer/store/<store_link>/catalog` | None | Get catalog grouped by category |
-| POST | `/api/buyer/cart` | None | Add/update/remove item in cart |
-| GET | `/api/buyer/cart/<session_id>` | None | View cart contents |
-| POST | `/api/buyer/login` | None | Login (OTP bypassed), receive JWT |
-| POST | `/api/buyer/order` | Bearer JWT | Place order from cart |
+@app.route("/users", methods=["GET"])
+def get_users():
+    conn = get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT user_id, username, full_name, bio FROM users ORDER BY user_id;")
+        users = cur.fetchall()
+        cur.close()
+        return jsonify(users), 200
+    finally:
+        release_connection(conn)
+```
+
+### GET — a single user by ID (path parameter)
+
+```python
+@app.route("/users/<int:user_id>", methods=["GET"])
+def get_user(user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT user_id, username, full_name, bio FROM users WHERE user_id = %s;", (user_id,))
+        user = cur.fetchone()
+        cur.close()
+        if user is None:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify(user), 200
+    finally:
+        release_connection(conn)
+```
+
+`<int:user_id>` tells Flask to extract that part of the URL, convert it to an `int`, and pass it as a function argument. `%s` with a tuple `(user_id,)` is **parameterized SQL** — psycopg2 escapes the value safely, preventing SQL injection. **Never** build queries with f-strings or `.format()` using user input.
+
+### POST — create a new user
+
+```python
+@app.route("/users", methods=["POST"])
+def create_user():
+    data = request.get_json()
+
+    if not data or "username" not in data or "email" not in data:
+        return jsonify({"error": "username and email are required"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """
+            INSERT INTO users (username, email, full_name, bio)
+            VALUES (%s, %s, %s, %s)
+            RETURNING user_id, username, email, full_name, bio;
+            """,
+            (data["username"], data["email"], data.get("full_name"), data.get("bio")),
+        )
+        new_user = cur.fetchone()
+        conn.commit()
+        cur.close()
+        return jsonify(new_user), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_connection(conn)
+```
+
+- `request.get_json()` — parses the incoming JSON body of the POST request.
+- `RETURNING ...` — a Postgres feature that hands back the row you just inserted (including the auto-generated `user_id`) in the same query, no second `SELECT` needed.
+- `conn.commit()` — without this, the `INSERT` stays uncommitted and is invisible to other connections (see the Transactions section of the SQL notes).
+- `conn.rollback()` — on any error, undo whatever partial work happened on this connection so the next request that reuses it from the pool starts clean.
+- **201 Created** is the correct status code for a successful `POST` that creates a resource (not `200`).
+
+### GET — posts, joined with their owner's username
+
+```python
+@app.route("/posts", methods=["GET"])
+def get_posts():
+    conn = get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """
+            SELECT posts.post_id, posts.caption, posts.created_at, users.username
+            FROM posts
+            JOIN users ON posts.user_id = users.user_id
+            ORDER BY posts.created_at DESC;
+            """
+        )
+        posts = cur.fetchall()
+        cur.close()
+        return jsonify(posts), 200
+    finally:
+        release_connection(conn)
+```
+
+This is the same `JOIN` from the SQL notes — the API layer doesn't change the SQL logic, it just wraps the result in JSON.
+
+### POST — like a post
+
+```python
+@app.route("/posts/<int:post_id>/likes", methods=["POST"])
+def like_post(post_id):
+    data = request.get_json()
+    if not data or "user_id" not in data:
+        return jsonify({"error": "user_id is required"}), 400
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "INSERT INTO likes (user_id, post_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING user_id, post_id;",
+            (data["user_id"], post_id),
+        )
+        result = cur.fetchone()
+        conn.commit()
+        cur.close()
+        if result is None:
+            return jsonify({"message": "Already liked"}), 200
+        return jsonify(result), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_connection(conn)
+```
+
+`ON CONFLICT DO NOTHING` leans directly on the **composite primary key** `(user_id, post_id)` from the SQL notes — if that exact pair already exists, Postgres silently skips the insert instead of throwing a duplicate-key error, which is exactly the "like it once" behavior we want.
+
+### DELETE — unlike a post
+
+```python
+@app.route("/posts/<int:post_id>/likes/<int:user_id>", methods=["DELETE"])
+def unlike_post(post_id, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM likes WHERE post_id = %s AND user_id = %s;", (post_id, user_id))
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        if deleted == 0:
+            return jsonify({"error": "Like not found"}), 404
+        return "", 204
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_connection(conn)
+```
+
+`cur.rowcount` tells you how many rows the last query affected — useful for knowing whether a `DELETE`/`UPDATE` actually matched anything. **204 No Content** is the standard response for a successful delete with nothing to return.
 
 ---
 
-## Sample Request/Response
+## 5. HTTP Status Codes Cheat Sheet
 
-### Seller Signup
-
-```bash
-curl -X POST http://localhost:5000/api/seller/signup \
-  -H "Content-Type: application/json" \
-  -d '{"mobile": "9876543210", "otp": "1234"}'
-```
-
-```json
-{
-  "message": "Signup successful",
-  "account": { "id": 1, "mobile": "9876543210" },
-  "token": "eyJ0eXAiOiJKV1Qi..."
-}
-```
-
-### Create Store
-
-```bash
-curl -X POST http://localhost:5000/api/seller/store \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Raj Electronics", "address": "FC Road, Pune"}'
-```
-
-```json
-{
-  "store_id": 1,
-  "store_link": "raj-electronics-a3f9c1",
-  "name": "Raj Electronics",
-  "address": "FC Road, Pune"
-}
-```
-
-### Add Product
-
-```bash
-curl -X POST http://localhost:5000/api/seller/store/1/product \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Laptop",
-    "description": "15-inch laptop",
-    "mrp": 50000,
-    "sale_price": 45000,
-    "image_url": "http://example.com/laptop.jpg",
-    "category": "Electronics"
-  }'
-```
-
-```json
-{ "id": 1, "name": "Laptop", "image_url": "http://example.com/laptop.jpg" }
-```
-
-### Add to Cart (unauthenticated)
-
-```bash
-curl -X POST http://localhost:5000/api/buyer/cart \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "my-session-abc123",
-    "store_link": "raj-electronics-a3f9c1",
-    "product_id": 1,
-    "qty": 2
-  }'
-```
-
-### Buyer Login
-
-```bash
-curl -X POST http://localhost:5000/api/buyer/login \
-  -H "Content-Type: application/json" \
-  -d '{"mobile": "9000000001", "otp": "0000", "address": "Kothrud, Pune"}'
-```
-
-### Place Order
-
-```bash
-curl -X POST http://localhost:5000/api/buyer/order \
-  -H "Authorization: Bearer <buyer-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "my-session-abc123"}'
-```
-
-```json
-{
-  "message": "Order placed successfully",
-  "order_id": 1,
-  "total_amount": "90000.00"
-}
-```
+| Code | Meaning               | Use it when                             |
+| ---- | --------------------- | --------------------------------------- |
+| 200  | OK                    | Successful GET/PUT/general success      |
+| 201  | Created               | Successful POST that created a resource |
+| 204  | No Content            | Successful DELETE, nothing to return    |
+| 400  | Bad Request           | Missing/invalid input from the client   |
+| 404  | Not Found             | The requested resource doesn't exist    |
+| 409  | Conflict              | A unique constraint would be violated   |
+| 500  | Internal Server Error | Something broke on the server side      |
 
 ---
 
-## Local Setup (without K8s)
+## 6. Non-Blocking API Calls with Threading and Concurrency
+
+### The problem
+
+By default, the Flask development server handles **one request at a time**. If one request takes 3 seconds (e.g., calling a slow external API, sending an email, processing an image), every other user is stuck waiting behind it.
+
+```python
+# app.run() by default is single-threaded — bad for slow operations
+app.run(debug=True)
+```
+
+Fix #1 — let Flask's dev server handle multiple requests concurrently using threads:
+
+```python
+app.run(debug=True, threaded=True)
+```
+
+This alone helps, but it only solves _concurrent requests_. It doesn't solve the deeper problem: a single request that needs to do something slow (like notifying followers) shouldn't make the _user_ wait for that slow part if the result isn't needed in the response.
+
+### Fix #2 — Python's `threading` module for fire-and-forget work
+
+**Real-world example:** when someone likes a post, you might want to send a push notification to the post's owner. The HTTP client doesn't need to wait for that notification to actually be delivered — it just needs to know the like was saved.
+
+```python
+import threading
+
+def send_notification(username, post_id):
+    # imagine this calls a slow push-notification service
+    import time
+    time.sleep(3)
+    print(f"Notified {username} about a new like on post {post_id}")
+
+@app.route("/posts/<int:post_id>/likes", methods=["POST"])
+def like_post(post_id):
+    data = request.get_json()
+    # ... (insert the like into the DB, same as before) ...
+
+    # Fire the notification in a background thread — don't block the response
+    owner_username = "elonmusk"  # (you'd look this up from the DB)
+    threading.Thread(target=send_notification, args=(owner_username, post_id)).start()
+
+    return jsonify({"message": "Liked"}), 201
+```
+
+The client gets their `201 Created` response immediately — the 3-second notification work happens in the background, in a separate thread, without holding up the request.
+
+### Fix #3 — `ThreadPoolExecutor` for _controlled_ concurrency
+
+Spawning a brand-new `threading.Thread` for every request works, but it's unbounded — under heavy traffic you could spin up thousands of threads and exhaust system resources. A **thread pool** caps how many run at once and queues the rest.
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+executor = ThreadPoolExecutor(max_workers=5)  # at most 5 background tasks at once
+
+@app.route("/posts/<int:post_id>/likes", methods=["POST"])
+def like_post(post_id):
+    # ... insert the like ...
+    executor.submit(send_notification, "elonmusk", post_id)
+    return jsonify({"message": "Liked"}), 201
+```
+
+`executor.submit(...)` queues the function to run on the next available worker thread instead of creating a brand-new thread every time — much safer under load.
+
+### A critical gotcha: database connections aren't automatically thread-safe
+
+If your background thread also needs to talk to Postgres, **don't reuse the same connection object that's handling the main request** — psycopg2 connections aren't safe to use from multiple threads simultaneously. Always pull a fresh connection from the pool inside the threaded function, and release it when done:
+
+```python
+def send_notification_and_log(user_id, post_id):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO notification_log (user_id, post_id) VALUES (%s, %s);", (user_id, post_id))
+        conn.commit()
+        cur.close()
+    finally:
+        release_connection(conn)   # always return it to the pool
+```
+
+This is exactly why we built a **connection pool** back in Section 3 — each thread can safely check out its own connection.
+
+### Fix #4 — `async`/`await` (Flask 2.0+, the modern alternative)
+
+Flask views can also be declared `async def`, which suits I/O-bound work like calling external HTTP APIs (note: this is a different concurrency model than threading — it requires `await`-able libraries, e.g. `httpx` instead of the blocking `requests`):
+
+```python
+import httpx
+
+@app.route("/posts/<int:post_id>/notify-external", methods=["POST"])
+async def notify_external_service(post_id):
+    async with httpx.AsyncClient() as client:
+        response = await client.post("https://example.com/webhook", json={"post_id": post_id})
+    return jsonify({"status": response.status_code}), 200
+```
+
+**`threading`/`ThreadPoolExecutor` vs `async`/`await` — when to use which:**
+
+| Approach                               | Best for                                                       | Notes                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `threading.Thread`                     | Simple fire-and-forget background tasks                        | Easiest to add to existing sync code; uncapped if used carelessly                         |
+| `ThreadPoolExecutor`                   | Background tasks under predictable load                        | Same as above, but caps concurrency                                                       |
+| `async`/`await`                        | High volume of I/O-bound requests (calling many external APIs) | Needs async-compatible libraries throughout; more efficient at scale but a bigger rewrite |
+| Background job queue (e.g. Celery, RQ) | Heavy or long-running tasks (video processing, bulk emails)    | Out of scope here, but the natural next step once `threading` isn't enough                |
+
+---
+
+## 7. Running in Production
+
+The Flask dev server (`app.run()`) is **not** meant for production — it's single-process and not designed for real traffic. Use a proper WSGI server like **gunicorn**:
 
 ```bash
-# 1. Clone and enter project
-git clone <repo> && cd dukaan
+pip install gunicorn
 
-# 2. Start Postgres
-docker-compose up -d db
-
-# 3. Create virtualenv
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Init DB
-flask db init
-flask db migrate -m "initial"
-flask db upgrade
-
-# 5. Run app
-python run.py
+# 4 worker processes, each capable of handling requests independently
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
 ```
+
+- `-w 4` — runs 4 worker _processes_ (separate from the threading discussed above — this is process-level parallelism, useful because Python's Global Interpreter Lock limits true CPU parallelism within a single process).
+- Always set `debug=False` (or just don't pass `debug=True`) in production — debug mode can leak stack traces and even allow remote code execution if exposed publicly.
+- Keep using the connection pool from Section 3 — under multiple gunicorn workers, each worker process gets its **own** pool (pools aren't shared across processes), so size `max_workers` and your pool's max connections together so you don't exceed Postgres's `max_connections`.
 
 ---
 
-## Local Setup (with Tilt + K8s)
+## Quick Reference Summary
 
-> Requires: [Docker](https://docs.docker.com/get-docker/), [kubectl](https://kubernetes.io/docs/tasks/tools/), [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/), and [Tilt](https://docs.tilt.dev/install.html)
-
-```bash
-# 1. Start a local cluster (choose one)
-kind create cluster
-# or
-minikube start
-
-# 2. Start Tilt
-tilt up
-
-# App will be available at http://localhost:5000
-# Postgres port-forwarded to localhost:5432
-```
-
----
-
-## Database Schema (Summary)
-
-```
-accounts         — seller accounts (mobile, id)
-stores           — seller stores (name, address, store_link, account_id)
-categories       — product categories (name, store_id)
-products         — inventory (name, description, mrp, sale_price, image_url, store_id, category_id)
-customers        — buyer accounts (mobile, address)
-carts            — server-side cart (session_id, customer_id, store_id)
-cart_items       — line items in cart (cart_id, product_id, qty)
-orders           — placed orders (store_id, customer_id, total_amount, status)
-order_items      — line items in order (order_id, product_id, qty, unit_price)
-```
-
----
-
-## Design Decisions
-
-- **OTP validation is bypassed** — any mobile + OTP combination issues a JWT, per spec.
-- **Cart is session-based** — identified by a client-generated `session_id` UUID. No auth required to add to cart. On order placement, the cart is linked to the authenticated customer.
-- **One seller → multiple stores** — the `stores` table has a FK to `accounts`.
-- **Categories are store-scoped** — `(name, store_id)` has a unique constraint, so the same category name can exist in different stores.
-- **Postgres as a Deployment (not StatefulSet)** — per spec, with PVC for data persistence. Suitable for single-instance local/staging setups.
-- **HPA** scales the app pods between 2 and 10 replicas based on CPU (60%) and memory (70%) utilization.
+| Topic                  | Key tool/code                        | Purpose                                      |
+| ---------------------- | ------------------------------------ | -------------------------------------------- |
+| Flask basics           | `@app.route()`, `jsonify()`          | Define endpoints, return JSON                |
+| DB connection          | `psycopg2.pool.SimpleConnectionPool` | Reusable, safe DB connections                |
+| Dict-style rows        | `RealDictCursor`                     | Query results as JSON-friendly dicts         |
+| Safe queries           | `%s` placeholders                    | Prevent SQL injection                        |
+| Create + return row    | `RETURNING ...`                      | Get the inserted row back in one query       |
+| Avoid duplicate likes  | `ON CONFLICT DO NOTHING`             | Leans on the composite PK from the SQL notes |
+| Background work        | `threading.Thread`                   | Fire-and-forget, don't block the response    |
+| Controlled concurrency | `ThreadPoolExecutor`                 | Cap background thread count                  |
+| Modern async I/O       | `async def` + `await`                | High-volume I/O-bound endpoints              |
+| Production server      | `gunicorn -w 4`                      | Multi-process, production-grade serving      |
