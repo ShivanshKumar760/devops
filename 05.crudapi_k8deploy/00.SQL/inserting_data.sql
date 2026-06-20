@@ -1,6 +1,9 @@
 INSERT INTO users (username, email, full_name)
 VALUES ('elonmusk', 'elon@example.com', 'Elon Musk');
 
+INSERT INTO users (username, email, full_name)
+VALUES ('Shivansh', 'shiv@example.com', 'SK');
+
 -- Insert a post from that user (user_id = 1, assuming first row)
 INSERT INTO posts (user_id, caption, image_url)
 VALUES (1, 'Beautiful sunset 🌅', 'https://cdn.example.com/img1.jpg');
