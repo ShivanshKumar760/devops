@@ -115,3 +115,5 @@ def unlike_post(post_id, user_id):
     finally:
         release_connection(conn)
 
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
