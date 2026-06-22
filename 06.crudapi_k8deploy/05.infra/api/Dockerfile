@@ -23,4 +23,10 @@ COPY . .
 EXPOSE 5000
 
 # Run with gunicorn instead of Flask's dev server — production WSGI server
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "api:api"]
+CMD ["gunicorn", \
+     "--bind", "0.0.0.0:5000", \
+     "--worker-class", "gthread", \
+     "--workers", "1", \
+     "--threads", "8", \
+     "--timeout", "60", \
+     "api:api"]

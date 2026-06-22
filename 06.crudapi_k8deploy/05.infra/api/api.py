@@ -32,7 +32,8 @@ DB_CONFIG = dict(
     user=os.getenv("DB_USER") or'postgres',
     password=os.getenv("DB_PASSWORD") or 'password',
     host=os.getenv("DB_HOST") or 'localhost',
-    port=os.getenv("DB_PORT") or 5432
+    port=os.getenv("DB_PORT") or 5432,
+    connect_timeout=5
 )
 
 def get_db():

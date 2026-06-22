@@ -71,14 +71,7 @@ metadata:
   labels:
     app: instagram-api
 spec:
-  replicas: 1 # starting point — the HPA will adjust this up/down automatically
-  strategy:
-    type:
-      RollingUpdate # safe here: stateless pods, no shared disk, so we
-      # CAN replace them one at a time with zero downtime
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 1
+  replicas: 1
   selector:
     matchLabels:
       app: instagram-api
@@ -89,10 +82,11 @@ spec:
     spec:
       containers:
         - name: instagram-api
-          image: instagram-api:latest # replace with your built+pushed image
+          image: instagram-api:v1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5000
+              name: http
           envFrom:
             - configMapRef:
                 name: instagram-config # injects DB_HOST, DB_PORT, DB_NAME, FLASK_ENV as env vars
@@ -100,20 +94,24 @@ spec:
                 name: instagram-secret # injects DB_USER, DB_PASSWORD as env vars
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "300m"
+              cpu: "250m"
               memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
           readinessProbe:
             httpGet:
               path: /health
               port: 5000
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 15 # Gives Gunicorn 15 seconds to boot before checking health
+            periodSeconds: 10 # Checks health every 10 seconds
+            timeoutSeconds: 5 # Allows up to 5 seconds for a response instead of the 1s default
+            failureThreshold: 3 # Number of failures before marking pod as Unhealthy
           livenessProbe:
             httpGet:
               path: /health
               port: 5000
-            initialDelaySeconds: 10
-            periodSeconds: 20
+            initialDelaySeconds: 30 # Gives plenty of buffer time before considering a restart
+            periodSeconds: 20 # Checks liveness every 20 seconds
+            timeoutSeconds: 5 # Allows up to 5 seconds for a response
+            failureThreshold: 3 # Restarts the container only after 3 consecutive failures
