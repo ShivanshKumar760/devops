@@ -141,18 +141,25 @@ app.use(express.json()); // equivalent of Flask auto-parsing request.get_json() 
 ## 6. Full Server Code
 
 ```js
-// server.js
-require("dotenv").config();
-const express = require("express");
-const bcrypt = require("bcrypt");
-const pool = require("./db");
-const { createToken, tokenRequired } = require("./auth");
-
+// Automatically loads .env variables in ESM
+import express from "express";
+import bcrypt from "bcrypt";
+import pool from "./db/db.js"; // ESM requires explicit file extensions like .js or .ts
+import { createToken, tokenRequired } from "./middleware/auth.js";
+import cors from "cors";
 const app = express();
 app.use(express.json());
+app.use(cors())
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ CRITICAL: Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("❌ CRITICAL: Uncaught Exception thrown:", err);
+});
 
 // ---------- Shared state for long polling ----------
-// No lock needed — see Section 2. Node's single-threaded event loop means
+// No lock needed — Node's single-threaded event loop means
 // no two pieces of JS code ever run "at the same instant."
 
 let latestEvent = { version: 0, type: null, data: null };
@@ -171,9 +178,9 @@ async function waitForNewEvent(sinceVersion, timeoutMs = 25000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (latestEvent.version > sinceVersion) {
-      return { ...latestEvent }; // shallow copy, same role as dict(latest_event) in Python
+      return { ...latestEvent }; // shallow copy
     }
-    await sleep(500); // yields control back to the event loop so other requests get served
+    await sleep(500); // yields control back to the event loop
   }
   return null;
 }
@@ -202,7 +209,6 @@ app.post("/signup", async (req, res) => {
     return res.status(201).json({ user, token });
   } catch (err) {
     if (err.code === "23505") {
-      // Postgres unique_violation error code — pg's equivalent of UniqueViolation
       return res.status(409).json({ error: "username or email already taken" });
     }
     console.error(err);
@@ -345,15 +351,31 @@ app.get("/events/poll", async (req, res) => {
   const event = await waitForNewEvent(sinceVersion);
 
   if (event === null) {
-    // Timed out — nothing happened. Client should immediately call /events/poll again.
     return res.status(204).json({ timeout: true, version: sinceVersion });
   }
   return res.status(200).json(event);
 });
 
-const PORT = 5000;
-app.listen(PORT, () => {
+try {
+  await pool.query("SELECT 1");
+  console.log("Database connected");
+} catch (err) {
+  console.error(err);
+}
+const PORT = 5001;
+
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+console.log(server.listening);
+
+process.on("exit", (code) => {
+  console.log("EXIT:", code);
+});
+
+server.on("close", () => {
+  console.log("SERVER CLOSED");
 });
 ```
 
