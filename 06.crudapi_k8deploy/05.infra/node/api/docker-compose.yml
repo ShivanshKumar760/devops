@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # --- PostgreSQL Database Container ---
+  db:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_DB: instagram_api
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # --- Node.js API Container ---
+  api:
+    build: .
+    container_name: node_api
+    restart: always
+    ports:
+      - "5001:5001"
+    env_file:
+      - .env
+    environment:
+      # We route your API to the database container name instead of "localhost"
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: instagram_api
+      DB_USER: postgres
+      DB_PASSWORD: password
+    depends_on:
+      - db
+
+volumes:
+  pgdata:  # Keeps your database data safe even if the container stops or resets

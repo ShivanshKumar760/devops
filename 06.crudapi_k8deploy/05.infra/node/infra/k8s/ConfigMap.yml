@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: instagram-config
+  labels:
+    app: instagram-api
+data:
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "instagram_api"
+  NODE_ENV: "production"

@@ -1,0 +1,37 @@
+# Dependencies (Crucial to prevent architecture mismatch crashes)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Git and OS metadata
+.git/
+.gitignore
+.gitattributes
+.DS_Store
+Thumbs.db
+
+# Docker configuration files
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# IDEs and Text Editors settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Local Environment Secrets (Prevents backing passwords into image layers)
+.env
+.env.*
+!.env.example
+
+# Build outputs or test logs
+dist/
+build/
+coverage/
