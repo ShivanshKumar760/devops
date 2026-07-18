@@ -8,6 +8,11 @@ from api.auth.auth import issue_buyer_token
 
 buyer_bp = Blueprint("buyer", __name__)
 
+# Test endpoint
+
+@buyer_bp.route("/store/test",methods=["GET"])
+def test():
+    return jsonify({"message":"ok"})
 
 # ─── 1. Get Store Details ────────────────────────────────────────────────────
 

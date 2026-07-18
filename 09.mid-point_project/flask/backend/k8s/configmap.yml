@@ -4,7 +4,7 @@ metadata:
   name: dukaan-config 
   namespace: dukaan
 data:
-  DATABASE_HOST: "postgres-service"
+  DATABASE_HOST: "postgres-svc"
   DATABASE_PORT: "5432"
   DATABASE_NAME: "dukaan_db"
   DATABASE_USER: "dukaan"
