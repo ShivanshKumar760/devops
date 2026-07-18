@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dukaan-config 
+  namespace: dukaan
+data:
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "dukaan_db"
+  DATABASE_USER: "dukaan"
+  FLASK_ENV: "production"
